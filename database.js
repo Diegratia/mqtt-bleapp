@@ -18,6 +18,7 @@ async function initializeDatabase() {
       host: dbConfig.host,
       user: dbConfig.user,
       password: dbConfig.password,
+      // database: dbConfig.database,
     });
     await connection.query("CREATE DATABASE IF NOT EXISTS mqttble_app");
     await connection.end();
@@ -42,7 +43,6 @@ async function initializeDatabase() {
         dmac VARCHAR(12) NOT NULL,
         refpower SMALLINT,
         rssi SMALLINT,
-        ver TINYINT,
         vbatt INT,
         temp FLOAT,
         time DATETIME NOT NULL,

@@ -1,4 +1,5 @@
 var mqtt = require("mqtt");
+const { KalmanFilter } = require("kalman-filter");
 var Topic = "test/topic";
 var Broker_URL = "mqtt://localhost:1884";
 
@@ -31,14 +32,17 @@ function startMqttClient(messageCallback) {
 
   function mqtt_messageReceived(topic, message, packet) {
     try {
-      var message_str = message.toString();
-      var data = JSON.parse(message_str);
-      console.log(data);
-      messageCallback(data);
+      // const kFilter = new KalmanFilter();
+      // const res = kFilter.filter(message);
+      // var message_str = res.toString();
+      // var data = JSON.parse(message_str);
+      console.log(message);
+      // messageCallback(data);
     } catch (error) {
       console.error("Error parsing message:", error.message);
     }
   }
   return client;
 }
+
 module.exports = { startMqttClient };

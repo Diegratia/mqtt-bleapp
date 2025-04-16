@@ -32,15 +32,14 @@ async function saveToDatabase(data) {
     for (var obj of data.obj) {
       await dbPool.query(
         `INSERT INTO beacons (
-          gateway_id, type, dmac, refpower, rssi, ver, vbatt, temp, time
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          gateway_id, type, dmac, refpower, rssi, vbatt, temp, time
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           gatewayId,
           obj.type,
           obj.dmac,
           obj.refpower || null,
           obj.rssi || null,
-          obj.ver || null,
           obj.vbatt || null,
           obj.temp || null,
           obj.time,
@@ -54,21 +53,97 @@ async function saveToDatabase(data) {
 }
 
 // get
-app.get("/beacons", async (req, res) => {
+app.get("/beacons-data", async (req, res) => {
   try {
-    var dbPool = getDbPool();
-    var [rows] = await dbPool.query(`
-      SELECT b.*, g.gmac
+    // get koneksi
+    const dbPool = getDbPool();
+
+    // ambil data dari db
+    const [rows] = await dbPool.query(`
+      SELECT g.gmac, b.dmac, b.type, b.vbatt, b.temp, b.rssi, b.refpower
       FROM beacons b
       JOIN gateways g ON b.gateway_id = g.id
+      ORDER BY g.gmac, b.dmac, b.type
     `);
-    res.json({ message: "Stored beacon data", data: rows });
+
+    const result = [];
+
+    //kelompok berdasarkan gmac
+    const groupedByGmac = {};
+
+    rows.forEach((row) => {
+      const { gmac, dmac, type, vbatt, temp, rssi, refpower } = row;
+
+      // kalau blm ada buat entri baru
+      if (!groupedByGmac[gmac]) {
+        groupedByGmac[gmac] = {
+          gmac: gmac,
+          beacons: {},
+        };
+        result.push(groupedByGmac[gmac]);
+      }
+
+      // kalau dmac blm ada buat entri baru
+      if (!groupedByGmac[gmac].beacons[dmac]) {
+        groupedByGmac[gmac].beacons[dmac] = {
+          type1: {},
+          type4: {},
+        };
+      }
+
+      // tampilkan sesuai type
+      if (type === 1) {
+        groupedByGmac[gmac].beacons[dmac].type1 = { vbatt, temp };
+      } else if (type === 4) {
+        groupedByGmac[gmac].beacons[dmac].type4 = { rssi, refpower };
+      }
+    });
+
+    // all
+
+    // kalau dmac blm ada buat entri baru
+    //   if (!groupedByGmac[gmac].beacons[dmac]) {
+    //     groupedByGmac[gmac].beacons[dmac] = {
+    //       type1: [],
+    //       type4: [],
+    //     };
+    //   }
+
+    //   // tampilkan sesuai type
+    //   if (type === 1) {
+    //     groupedByGmac[gmac].beacons[dmac].type1.push({ vbatt, temp });
+    //   } else if (type === 4) {
+    //     groupedByGmac[gmac].beacons[dmac].type4.push({ rssi, refpower });
+    //   }
+    // });
+
+    res.json({
+      message: "Data berhasil diambil",
+      data: result,
+    });
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Error fetching data", error: error.message });
+    res.status(500).json({
+      message: "Gagal ambil data",
+      error: error.message,
+    });
   }
 });
+
+// app.get("/beacon-data", async (req, res) => {
+//   try {
+//     var dbPool = getDbPool();
+//     var [rows] = await dbPool.query(`
+//       SELECT b.*, g.gmac
+//       FROM beacons b
+//       JOIN gateways g ON b.gateway_id = g.id
+//     `);
+//     res.json({ message: "Stored beacon data", data: rows });
+//   } catch (error) {
+//     res
+//       .status(500)
+//       .json({ message: "Error fetching data", error: error.message });
+//   }
+// });
 
 app.get("/", (req, res) => {
   res.json({ message: "Server is running" });
