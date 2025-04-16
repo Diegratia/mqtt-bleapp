@@ -1,0 +1,14 @@
+{
+  "name": "mtqq-bleapp",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "mqtt": "^5.11.0",
+    "mysql2": "^3.14.0"
+  }
+}

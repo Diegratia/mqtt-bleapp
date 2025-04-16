@@ -1,0 +1,5 @@
+{"msg":"advData","gmac":"282C02227F1A","obj":[{"type":4,"dmac":"DD33041347D5","uuid":"7777772E6B6B6D636E2E636F6D000001","majorID":1,"minorID":1,"refpower":-59,"rssi":-67,"time":"2025-04-15 08:32:06.288"}]}
+{"msg":"advData","gmac":"282C02227F1A","obj":[{"type":4,"dmac":"DD33041347D5","uuid":"7777772E6B6B6D636E2E636F6D000001","majorID":1,"minorID":1,"refpower":-59,"rssi":-62,"time":"2025-04-15 08:32:07.293"},{"type":1,"dmac":"BC572913EA8B","time":"2025-04-15 08:32:07.311","rssi":-69,"ver":0,"vbatt":3012,"temp":29.0,"x0":-127,"y0":-314,"z0":964},{"type":4,"dmac":"BC572913EA8B","uuid":"7777772E6B6B6D636E2E636F6D000001","majorID":8,"minorID":22761,"refpower":-75,"rssi":-86,"time":"2025-04-15 08:32:07.507"}]}
+
+
+
