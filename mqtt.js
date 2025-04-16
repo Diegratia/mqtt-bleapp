@@ -33,10 +33,11 @@ function startMqttClient(messageCallback) {
   function mqtt_messageReceived(topic, message, packet) {
     try {
       // const kFilter = new KalmanFilter();
-      // const res = kFilter.filter(message);
-      // var message_str = res.toString();
+      // const res = kFilter.filterAll(message);
+      var message_str = message.toString();
+      // console.log(message_str);
       // var data = JSON.parse(message_str);
-      console.log(message);
+      console.log(message_str);
       // messageCallback(data);
     } catch (error) {
       console.error("Error parsing message:", error.message);

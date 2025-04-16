@@ -99,7 +99,7 @@ app.get("/beacons-data", async (req, res) => {
       }
     });
 
-    // all
+    //
 
     // kalau dmac blm ada buat entri baru
     //   if (!groupedByGmac[gmac].beacons[dmac]) {
