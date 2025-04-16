@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "express": "^5.1.0",
+    "kalman-filter": "^2.3.0",
     "mqtt": "^5.11.0",
     "mysql2": "^3.14.0"
   }
