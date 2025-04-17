@@ -1,4 +1,5 @@
 var mqtt = require("mqtt");
+const { Kalman } = require("kalmanjs");
 const { KalmanFilter } = require("kalman-filter");
 var Topic = "test/topic";
 var Broker_URL = "mqtt://localhost:1884";
@@ -32,13 +33,25 @@ function startMqttClient(messageCallback) {
 
   function mqtt_messageReceived(topic, message, packet) {
     try {
-      // const kFilter = new KalmanFilter();
-      // const res = kFilter.filterAll(message);
       var message_str = message.toString();
-      // console.log(message_str);
-      // var data = JSON.parse(message_str);
-      console.log(message_str);
-      // messageCallback(data);
+      var data = JSON.parse(message_str);
+      console.log(data);
+
+      if (data.obj) {
+        data.obj.forEach((beacon) => {
+          if (beacon.rssi !== undefined) {
+            const kf = new KalmanFilter();
+            const kalmanfilterrssi = kf.filter(beacon.rssi);
+
+            console.log(
+              `Raw RSSI: ${beacon.rssi}, Filtered RSSI: ${kalmanfilterrssi}`
+            );
+            beacon.filteredRssi = kalmanfilterrssi;
+          }
+        });
+      }
+
+      messageCallback(data);
     } catch (error) {
       console.error("Error parsing message:", error.message);
     }
