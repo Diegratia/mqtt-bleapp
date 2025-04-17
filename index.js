@@ -2,6 +2,8 @@ var express = require("express");
 var { initializeDatabase, getDbPool } = require("./database");
 var { startMqttClient } = require("./mqtt");
 
+require("log-timestamp");
+
 var app = express();
 var port = 3000;
 

@@ -9,8 +9,6 @@ var options = {
   password: "test1",
 };
 
-let rssiBuffer = [];
-
 function startMqttClient(messageCallback) {
   var client = mqtt.connect(Broker_URL, options);
   client.on("connect", mqtt_connect);
@@ -36,31 +34,35 @@ function startMqttClient(messageCallback) {
     try {
       var message_str = message.toString();
       var data = JSON.parse(message_str);
-
       if (data.obj) {
+        const rssis = []; // ARRAY untuk nampung semua RSSI valid
+
+        // Kumpulkan semua RSSI valid
         data.obj.forEach((beacon) => {
           if (beacon.rssi !== undefined && !isNaN(beacon.rssi)) {
-            console.log(`Received RSSI: ${beacon.rssi}`);
-
-            //array push
-            rssiBuffer.push(beacon.rssi);
-
-            if (rssiBuffer.length >= 50) {
-              console.log("50 RSSI terkumpul, mulai filtering...");
-
-              const kFilter = new KalmanFilter();
-              const filteredRSSI = kFilter.filterAll(rssiBuffer);
-
-              console.log("Hasil Kalman Filter:");
-              console.log(filteredRSSI);
-
-              // Setelah proses, kosongkan buffer
-              rssiBuffer = [];
-            }
+            rssis.push(beacon.rssi);
           } else {
             console.log(`Invalid RSSI value: ${beacon.rssi}`);
           }
         });
+
+        // Setelah semua RSSI dikumpulkan, baru difilter
+        if (rssis.length > 0) {
+          const kFilter = new KalmanFilter();
+          const filteredRssis = kFilter.filterAll(rssis);
+
+          // Tampilkan hasil filter
+          console.log(`Raw RSSI array: ${rssis}`);
+          console.log(`Filtered RSSI array: ${filteredRssis}`);
+
+          // (Optional) kalau mau assign balik hasil filter ke masing-masing beacon
+          filteredRssis.forEach((filteredValue, index) => {
+            if (data.obj[index]) {
+              data.obj[index].filteredRssi = filteredValue;
+              console.log(`rssi balik: ${filteredValue}`);
+            }
+          });
+        }
       }
 
       // messageCallback(data);
@@ -68,7 +70,6 @@ function startMqttClient(messageCallback) {
       console.error("Error parsing message:", error.message);
     }
   }
-
   return client;
 }
 
