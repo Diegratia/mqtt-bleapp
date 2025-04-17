@@ -1,5 +1,4 @@
 var mqtt = require("mqtt");
-const { Kalman } = require("kalmanjs");
 const { KalmanFilter } = require("kalman-filter");
 var Topic = "test/topic";
 var Broker_URL = "mqtt://localhost:1884";
@@ -35,18 +34,21 @@ function startMqttClient(messageCallback) {
     try {
       var message_str = message.toString();
       var data = JSON.parse(message_str);
-      console.log(data);
-
+      // console.log(data);
       if (data.obj) {
         data.obj.forEach((beacon) => {
-          if (beacon.rssi !== undefined) {
-            const kf = new KalmanFilter();
-            const kalmanfilterrssi = kf.filter(beacon.rssi);
+          if (beacon.rssi !== undefined && !isNaN(beacon.rssi)) {
+            console.log(`Processing RSSI: ${beacon.rssi}`);
 
+            const kf = new KalmanFilter();
+            //konversi ke array
+            const kalmanfilterrssi = kf.filterAll([beacon.rssi]);
             console.log(
-              `Raw RSSI: ${beacon.rssi}, Filtered RSSI: ${kalmanfilterrssi}`
+              `Raw RSSI: ${beacon.rssi}, Filtered RSSI: ${kalmanfilterrssi[0]}`
             );
-            beacon.filteredRssi = kalmanfilterrssi;
+            beacon.filteredRssi = kalmanfilterrssi[0];
+          } else {
+            console.log(`Invalid RSSI value: ${beacon.rssi}`);
           }
         });
       }
