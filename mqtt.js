@@ -43,20 +43,21 @@ function startMqttClient(messageCallback) {
             console.log(`Received RSSI: ${beacon.rssi}`);
 
             //array push
+            console.time("Processing Time");
             rssiBuffer.push(beacon.rssi);
 
-            if (rssiBuffer.length >= 50) {
-              console.log("50 RSSI terkumpul, mulai filtering...");
+            if (rssiBuffer.length >= 20) {
+              console.log("20 rssi sudah ada, proses data");
 
               const kFilter = new KalmanFilter();
               const filteredRSSI = kFilter.filterAll(rssiBuffer);
 
-              console.log("Hasil Kalman Filter:");
+              console.log("hasil filter:");
               console.log(filteredRSSI);
 
-              // Setelah proses, kosongkan buffer
               rssiBuffer = [];
             }
+            console.timeEnd("Processing Time");
           } else {
             console.log(`Invalid RSSI value: ${beacon.rssi}`);
           }
