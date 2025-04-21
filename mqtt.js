@@ -11,6 +11,7 @@ var options = {
 
 let rssiBufferPerGateway = {};
 const windowSize = 10;
+let readyToSendData = [];
 
 function startMqttClient(messageCallback) {
   var client = mqtt.connect(Broker_URL, options);
@@ -41,8 +42,6 @@ function startMqttClient(messageCallback) {
       const gatewayId = data.gmac || "unknown_gateway";
 
       if (data.obj) {
-        let updatedObj = [];
-
         data.obj.forEach((beacon) => {
           const beaconId = beacon.dmac || "unknown_beacon";
 
@@ -67,8 +66,6 @@ function startMqttClient(messageCallback) {
             if (rssiBufferPerGateway[gatewayId][beaconId].length > windowSize) {
               rssiBufferPerGateway[gatewayId][beaconId].shift();
             }
-
-            let beaconCopy = { ...beacon }; // buat salinan beacon untuk update
 
             if (
               rssiBufferPerGateway[gatewayId][beaconId].length === windowSize
@@ -98,28 +95,35 @@ function startMqttClient(messageCallback) {
                 )}`
               );
 
-              // update beacon copy dengan nilai rssi baru
-              beaconCopy.rssi = parseFloat(avgFilteredRSSI.toFixed(2));
-            }
+              // buat beacon baru yang sudah difilter
+              let filteredBeacon = {
+                ...beacon,
+                rssi: parseFloat(avgFilteredRSSI.toFixed(2)),
+                gmac: gatewayId,
+              };
 
-            updatedObj.push(beaconCopy);
+              readyToSendData.push(filteredBeacon);
+            }
 
             console.timeEnd("Processing Time");
           } else {
             console.log(`Invalid RSSI value: ${beacon.rssi}`);
           }
         });
-
-        // update data.obj dengan hasil baru
-        data.obj = updatedObj;
       }
-
-      // kirim data hasil update ke messageCallback
-      messageCallback(data);
     } catch (error) {
       console.error("Error parsing message:", error.message);
     }
   }
+
+  setInterval(() => {
+    if (readyToSendData.length > 0) {
+      const payload = {
+        obj: readyToSendData.splice(0, readyToSendData.length),
+      };
+      messageCallback(payload);
+    }
+  }, 2000);
 
   return client;
 }
