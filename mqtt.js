@@ -41,12 +41,14 @@ function startMqttClient(messageCallback) {
       const gatewayId = data.gmac || "unknown_gateway";
 
       if (data.obj) {
+        let updatedObj = [];
+
         data.obj.forEach((beacon) => {
           const beaconId = beacon.dmac || "unknown_beacon";
 
           if (beacon.rssi !== undefined && !isNaN(beacon.rssi)) {
             console.log(
-              `Received Gateway: ${gatewayId}, Beacon DMAC: ${beaconId}, RSSI: ${beacon.rssi}`
+              `Gateway: ${gatewayId}, Beacon: ${beaconId}, RSSI: ${beacon.rssi}`
             );
 
             console.time("Processing Time");
@@ -66,6 +68,8 @@ function startMqttClient(messageCallback) {
               rssiBufferPerGateway[gatewayId][beaconId].shift();
             }
 
+            let beaconCopy = { ...beacon }; // buat salinan beacon untuk update
+
             if (
               rssiBufferPerGateway[gatewayId][beaconId].length === windowSize
             ) {
@@ -74,7 +78,7 @@ function startMqttClient(messageCallback) {
               );
               console.log(rssiBufferPerGateway[gatewayId][beaconId]);
 
-              // kalamn filter
+              // kalman filter
               const kFilter = new KalmanFilter();
               const filteredRSSI = kFilter.filterAll(
                 rssiBufferPerGateway[gatewayId][beaconId]
@@ -93,16 +97,25 @@ function startMqttClient(messageCallback) {
                   2
                 )}`
               );
+
+              // update beacon copy dengan nilai rssi baru
+              beaconCopy.rssi = parseFloat(avgFilteredRSSI.toFixed(2));
             }
+
+            updatedObj.push(beaconCopy);
 
             console.timeEnd("Processing Time");
           } else {
             console.log(`Invalid RSSI value: ${beacon.rssi}`);
           }
         });
+
+        // update data.obj dengan hasil baru
+        data.obj = updatedObj;
       }
 
-      // messageCallback(data); // kalau mau callback kirim ke atas
+      // kirim data hasil update ke messageCallback
+      messageCallback(data);
     } catch (error) {
       console.error("Error parsing message:", error.message);
     }
