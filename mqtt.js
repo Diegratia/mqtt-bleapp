@@ -9,7 +9,8 @@ var options = {
   password: "test1",
 };
 
-let rssiBuffer = [];
+let rssiBufferPerGateway = {};
+const windowSize = 10;
 
 function startMqttClient(messageCallback) {
   var client = mqtt.connect(Broker_URL, options);
@@ -37,26 +38,63 @@ function startMqttClient(messageCallback) {
       var message_str = message.toString();
       var data = JSON.parse(message_str);
 
+      const gatewayId = data.gmac || "unknown_gateway";
+
       if (data.obj) {
         data.obj.forEach((beacon) => {
+          const beaconId = beacon.dmac || "unknown_beacon";
+
           if (beacon.rssi !== undefined && !isNaN(beacon.rssi)) {
-            console.log(`Received RSSI: ${beacon.rssi}`);
+            console.log(
+              `Received Gateway: ${gatewayId}, Beacon DMAC: ${beaconId}, RSSI: ${beacon.rssi}`
+            );
 
-            //array push
             console.time("Processing Time");
-            rssiBuffer.push(beacon.rssi);
 
-            if (rssiBuffer.length >= 20) {
-              console.log("20 rssi sudah ada, proses data");
-
-              const kFilter = new KalmanFilter();
-              const filteredRSSI = kFilter.filterAll(rssiBuffer);
-
-              console.log("hasil filter:");
-              console.log(filteredRSSI);
-
-              rssiBuffer = [];
+            if (!rssiBufferPerGateway[gatewayId]) {
+              rssiBufferPerGateway[gatewayId] = {};
             }
+
+            if (!rssiBufferPerGateway[gatewayId][beaconId]) {
+              rssiBufferPerGateway[gatewayId][beaconId] = [];
+            }
+
+            rssiBufferPerGateway[gatewayId][beaconId].push(beacon.rssi);
+
+            // buffer penuh buang data lama
+            if (rssiBufferPerGateway[gatewayId][beaconId].length > windowSize) {
+              rssiBufferPerGateway[gatewayId][beaconId].shift();
+            }
+
+            if (
+              rssiBufferPerGateway[gatewayId][beaconId].length === windowSize
+            ) {
+              console.log(
+                `\n${windowSize} RSSI ditampung untuk Gateway: ${gatewayId}, DMAC: ${beaconId}`
+              );
+              console.log(rssiBufferPerGateway[gatewayId][beaconId]);
+
+              // kalamn filter
+              const kFilter = new KalmanFilter();
+              const filteredRSSI = kFilter.filterAll(
+                rssiBufferPerGateway[gatewayId][beaconId]
+              );
+
+              console.log("Hasil filter Kalman:");
+              console.log(filteredRSSI.map((f) => f[0]));
+
+              // rata rata kalman
+              const avgFilteredRSSI =
+                filteredRSSI.reduce((sum, val) => sum + val[0], 0) /
+                filteredRSSI.length;
+
+              console.log(
+                `Rata-rata Kalman untuk Gateway: ${gatewayId}, DMAC: ${beaconId}: ${avgFilteredRSSI.toFixed(
+                  2
+                )}`
+              );
+            }
+
             console.timeEnd("Processing Time");
           } else {
             console.log(`Invalid RSSI value: ${beacon.rssi}`);
@@ -64,7 +102,7 @@ function startMqttClient(messageCallback) {
         });
       }
 
-      // messageCallback(data);
+      // messageCallback(data); // kalau mau callback kirim ke atas
     } catch (error) {
       console.error("Error parsing message:", error.message);
     }
