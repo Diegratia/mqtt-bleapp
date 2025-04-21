@@ -11,8 +11,8 @@ var options = {
 };
 
 let rssiBufferPerGateway = {};
-const windowSize = 10;
 let readyToSendData = [];
+const windowSize = 100;
 
 function startMqttClient(messageCallback) {
   var client = mqtt.connect(Broker_URL, options);
@@ -40,16 +40,16 @@ function startMqttClient(messageCallback) {
       var message_str = message.toString();
       var data = JSON.parse(message_str);
 
-      const gatewayId = data.gmac || "unknown_gateway";
+      // console.log(data);
+
+      const gatewayId = data.gmac;
 
       if (data.obj) {
         data.obj.forEach((beacon) => {
-          const beaconId = beacon.dmac || "unknown_beacon";
+          const beaconId = beacon.dmac;
 
           if (beacon.rssi !== undefined && !isNaN(beacon.rssi)) {
-            console.log(
-              `Gateway: ${gatewayId}, Beacon: ${beaconId}, RSSI: ${beacon.rssi}`
-            );
+            console.log(`Gateway: ${gatewayId}, Beacon: ${beaconId}`);
 
             console.time("Processing Time");
 
