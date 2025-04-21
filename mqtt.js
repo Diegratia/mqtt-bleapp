@@ -1,4 +1,5 @@
 var mqtt = require("mqtt");
+var sma = require("sma");
 const { KalmanFilter } = require("kalman-filter");
 var Topic = "test/topic";
 var Broker_URL = "mqtt://localhost:1884";
@@ -84,21 +85,20 @@ function startMqttClient(messageCallback) {
               console.log("Hasil filter Kalman:");
               console.log(filteredRSSI.map((f) => f[0]));
 
-              // rata rata kalman
-              const avgFilteredRSSI =
-                filteredRSSI.reduce((sum, val) => sum + val[0], 0) /
-                filteredRSSI.length;
+              // ambil nilai kalman saja
+              const kalmanValues = filteredRSSI.map((f) => f[0]);
+
+              // hitung moving average
+              const avgFilteredRSSI = sma(kalmanValues);
 
               console.log(
-                `Rata-rata Kalman untuk Gateway: ${gatewayId}, DMAC: ${beaconId}: ${avgFilteredRSSI.toFixed(
-                  2
-                )}`
+                `Rata-rata Kalman untuk Gateway: ${gatewayId}, DMAC: ${beaconId}: ${avgFilteredRSSI}`
               );
 
               // buat beacon baru yang sudah difilter
               let filteredBeacon = {
                 ...beacon,
-                rssi: parseFloat(avgFilteredRSSI.toFixed(2)),
+                rssi: parseFloat(avgFilteredRSSI),
                 gmac: gatewayId,
               };
 
@@ -121,7 +121,9 @@ function startMqttClient(messageCallback) {
       const payload = {
         obj: readyToSendData.splice(0, readyToSendData.length),
       };
+
       messageCallback(payload);
+      console.log("sudah 2 detik");
     }
   }, 2000);
 
