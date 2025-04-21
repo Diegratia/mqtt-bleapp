@@ -39,20 +39,14 @@ function startMqttClient(messageCallback) {
     try {
       var message_str = message.toString();
       var data = JSON.parse(message_str);
-
-      // console.log(data);
-
       const gatewayId = data.gmac;
-
       if (data.obj) {
         data.obj.forEach((beacon) => {
           const beaconId = beacon.dmac;
 
           if (beacon.rssi !== undefined && !isNaN(beacon.rssi)) {
             console.log(`Gateway: ${gatewayId}, Beacon: ${beaconId}`);
-
             console.time("Processing Time");
-
             if (!rssiBufferPerGateway[gatewayId]) {
               rssiBufferPerGateway[gatewayId] = {};
             }
