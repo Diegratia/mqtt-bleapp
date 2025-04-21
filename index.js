@@ -2,7 +2,7 @@ var express = require("express");
 var { initializeDatabase, getDbPool } = require("./database");
 var { startMqttClient } = require("./mqtt");
 
-require("log-timestamp");
+// require("log-timestamp");
 
 var app = express();
 var port = 3000;
@@ -10,28 +10,52 @@ var port = 3000;
 //save
 async function saveToDatabase(data) {
   try {
-    var dbPool = getDbPool();
-    // gateways
-    var [gatewayRows] = await dbPool.query(
-      "INSERT IGNORE INTO gateways (gmac) VALUES (?)",
-      [data.gmac]
-    );
-    var gatewayId;
-    if (gatewayRows.insertId) {
-      gatewayId = gatewayRows.insertId;
-    } else {
-      var [existingGateway] = await dbPool.query(
-        "SELECT id FROM gateways WHERE gmac = ?",
-        [data.gmac]
-      );
-      if (!existingGateway[0]) {
-        throw new Error("Gateway not found after insert");
-      }
-      gatewayId = existingGateway[0].id;
+    if (!data.obj || !Array.isArray(data.obj) || data.obj.length === 0) {
+      console.warn("Invalid data received, skipping save:", data);
+      return;
     }
 
-    // beacons
-    for (var obj of data.obj) {
+    const gmac = data.gmac || data.obj[0].gmac;
+
+    if (!gmac) {
+      console.warn("No GMAC found in data, skipping save:", data);
+      return;
+    }
+
+    var dbPool = getDbPool();
+
+    var [gatewayResult] = await dbPool.query(
+      "INSERT IGNORE INTO gateways (gmac) VALUES (?)",
+      [gmac]
+    );
+
+    let gatewayId;
+
+    if (gatewayResult.insertId) {
+      gatewayId = gatewayResult.insertId;
+      console.log(`New gateway inserted: ${gmac} (id: ${gatewayId})`);
+    } else {
+      var [gatewayRows] = await dbPool.query(
+        "SELECT id FROM gateways WHERE gmac = ?",
+        [gmac]
+      );
+
+      if (!gatewayRows || gatewayRows.length === 0) {
+        throw new Error(
+          `Gateway with gmac=${gmac} not found after insert/select`
+        );
+      }
+
+      gatewayId = gatewayRows[0].id;
+    }
+
+    // Insert beacons
+    for (const obj of data.obj) {
+      if (!obj.dmac) {
+        console.warn("Beacon missing dmac, skipping:", obj);
+        continue;
+      }
+
       await dbPool.query(
         `INSERT INTO beacons (
           gateway_id, type, dmac, refpower, rssi, vbatt, temp, time
@@ -40,15 +64,16 @@ async function saveToDatabase(data) {
           gatewayId,
           obj.type,
           obj.dmac,
-          obj.refpower || null,
-          obj.rssi || null,
-          obj.vbatt || null,
-          obj.temp || null,
-          obj.time,
+          obj.refpower ?? null,
+          obj.rssi ?? null,
+          obj.vbatt ?? null,
+          obj.temp ?? null,
+          obj.time ?? new Date(),
         ]
       );
     }
-    console.log(" simpan dengan gmac:", data.gmac);
+
+    console.log(`Saved beacons for gateway ${gmac} successfully.`);
   } catch (error) {
     console.error("Error saving to database:", error.message, error.stack);
   }
@@ -70,7 +95,6 @@ app.get("/beacons-data", async (req, res) => {
 
     const result = [];
 
-    //kelompok berdasarkan gmac
     const groupedByGmac = {};
 
     rows.forEach((row) => {
@@ -86,38 +110,38 @@ app.get("/beacons-data", async (req, res) => {
       }
 
       // kalau dmac blm ada buat entri baru
+      //   if (!groupedByGmac[gmac].beacons[dmac]) {
+      //     groupedByGmac[gmac].beacons[dmac] = {
+      //       type1: {},
+      //       type4: {},
+      //     };
+      //   }
+
+      //   // tampilkan sesuai type
+      //   if (type === 1) {
+      //     groupedByGmac[gmac].beacons[dmac].type1 = { vbatt, temp };
+      //   } else if (type === 4) {
+      //     groupedByGmac[gmac].beacons[dmac].type4 = { rssi, refpower };
+      //   }
+      // });
+
+      //
+
+      // kalau dmac blm ada buat entri baru
       if (!groupedByGmac[gmac].beacons[dmac]) {
         groupedByGmac[gmac].beacons[dmac] = {
-          type1: {},
-          type4: {},
+          type1: [],
+          type4: [],
         };
       }
 
-      // tampilkan sesuai type
+      //   // tampilkan sesuai type
       if (type === 1) {
-        groupedByGmac[gmac].beacons[dmac].type1 = { vbatt, temp };
+        groupedByGmac[gmac].beacons[dmac].type1.push({ vbatt, temp });
       } else if (type === 4) {
-        groupedByGmac[gmac].beacons[dmac].type4 = { rssi, refpower };
+        groupedByGmac[gmac].beacons[dmac].type4.push({ rssi, refpower });
       }
     });
-
-    //
-
-    // kalau dmac blm ada buat entri baru
-    //   if (!groupedByGmac[gmac].beacons[dmac]) {
-    //     groupedByGmac[gmac].beacons[dmac] = {
-    //       type1: [],
-    //       type4: [],
-    //     };
-    //   }
-
-    //   // tampilkan sesuai type
-    //   if (type === 1) {
-    //     groupedByGmac[gmac].beacons[dmac].type1.push({ vbatt, temp });
-    //   } else if (type === 4) {
-    //     groupedByGmac[gmac].beacons[dmac].type4.push({ rssi, refpower });
-    //   }
-    // });
 
     res.json({
       message: "Data berhasil diambil",

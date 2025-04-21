@@ -42,7 +42,7 @@ async function initializeDatabase() {
         type TINYINT NOT NULL,
         dmac VARCHAR(12) NOT NULL,
         refpower SMALLINT,
-        rssi SMALLINT,
+        rssi Float,
         vbatt INT,
         temp FLOAT,
         time DATETIME NOT NULL,
