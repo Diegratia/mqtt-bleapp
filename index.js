@@ -148,9 +148,9 @@ app.get("/rssi-chart-data", async (req, res) => {
       data: data,
     });
   } catch (error) {
-    console.error("Error fetching RSSI chart data:", error.message);
+    console.error("Error get chart data:", error.message);
     res.status(500).json({
-      message: "Failed to fetch RSSI chart data",
+      message: "Fetch failed",
       error: error.message,
     });
   }
