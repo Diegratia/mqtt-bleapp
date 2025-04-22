@@ -1,13 +1,16 @@
-var express = require("express");
-var { initializeDatabase, getDbPool } = require("./database");
-var { startMqttClient } = require("./mqtt");
+const express = require("express");
+const cors = require("cors");
+const { initializeDatabase, getDbPool } = require("./database");
+const { startMqttClient } = require("./mqtt");
+const sql = require("mssql");
+const path = require("path");
 
-// require("log-timestamp");
+const app = express();
+const port = 3000;
 
-var app = express();
-var port = 3000;
+app.use(cors({ origin: "*" }));
+app.use(express.static(path.join(__dirname, "public")));
 
-//save
 async function saveToDatabase(data) {
   try {
     if (!data.obj || !Array.isArray(data.obj) || data.obj.length === 0) {
@@ -16,61 +19,53 @@ async function saveToDatabase(data) {
     }
 
     const gmac = data.gmac || data.obj[0].gmac;
-
     if (!gmac) {
       console.warn("No GMAC found in data, skipping save:", data);
       return;
     }
 
-    var dbPool = getDbPool();
+    const dbPool = getDbPool();
 
-    var [gatewayResult] = await dbPool.query(
-      "INSERT IGNORE INTO gateways (gmac) VALUES (?)",
-      [gmac]
-    );
+    await dbPool.request().input("gmac", sql.VarChar(12), gmac).query(`
+        IF NOT EXISTS (SELECT 1 FROM gateways WHERE gmac = @gmac)
+        INSERT INTO gateways (gmac) VALUES (@gmac);
+      `);
 
-    let gatewayId;
+    const gatewayResult = await dbPool
+      .request()
+      .input("gmac", sql.VarChar(12), gmac)
+      .query(`SELECT id FROM gateways WHERE gmac = @gmac;`);
 
-    if (gatewayResult.insertId) {
-      gatewayId = gatewayResult.insertId;
-      console.log(`New gateway inserted: ${gmac} (id: ${gatewayId})`);
-    } else {
-      var [gatewayRows] = await dbPool.query(
-        "SELECT id FROM gateways WHERE gmac = ?",
-        [gmac]
+    const gatewayId = gatewayResult.recordset[0]?.id;
+    if (!gatewayId) {
+      throw new Error(
+        `Gateway with gmac=${gmac} not found after insert/select`
       );
-
-      if (!gatewayRows || gatewayRows.length === 0) {
-        throw new Error(
-          `Gateway with gmac=${gmac} not found after insert/select`
-        );
-      }
-
-      gatewayId = gatewayRows[0].id;
     }
 
-    // Insert beacons
     for (const obj of data.obj) {
       if (!obj.dmac) {
         console.warn("Beacon missing dmac, skipping:", obj);
         continue;
       }
 
-      await dbPool.query(
-        `INSERT INTO beacons (
-          gateway_id, type, dmac, refpower, rssi, vbatt, temp, time
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          gatewayId,
-          obj.type,
-          obj.dmac,
-          obj.refpower ?? null,
-          obj.rssi ?? null,
-          obj.vbatt ?? null,
-          obj.temp ?? null,
-          obj.time ?? new Date(),
-        ]
-      );
+      await dbPool
+        .request()
+        .input("gateway_id", sql.Int, gatewayId)
+        .input("type", sql.TinyInt, obj.type)
+        .input("dmac", sql.VarChar(12), obj.dmac)
+        .input("refpower", sql.SmallInt, obj.refpower ?? null)
+        .input("rssi", sql.Float, obj.rssi ?? null)
+        .input("vbatt", sql.Int, obj.vbatt ?? null)
+        .input("temp", sql.Float, obj.temp ?? null)
+        .input("time", sql.DateTime, obj.time ? new Date(obj.time) : new Date())
+        .query(`
+          INSERT INTO beacons (
+            gateway_id, type, dmac, refpower, rssi, vbatt, temp, time
+          ) VALUES (
+            @gateway_id, @type, @dmac, @refpower, @rssi, @vbatt, @temp, @time
+          );
+        `);
     }
 
     console.log(`Saved beacons for gateway ${gmac} successfully.`);
@@ -79,55 +74,31 @@ async function saveToDatabase(data) {
   }
 }
 
-// get
 app.get("/beacons-data", async (req, res) => {
   try {
-    // get koneksi
     const dbPool = getDbPool();
-
-    // ambil data dari db
-    const [rows] = await dbPool.query(`
+    const result = await dbPool.request().query(`
       SELECT g.gmac, b.dmac, b.type, b.vbatt, b.temp, b.rssi, b.refpower
       FROM beacons b
       JOIN gateways g ON b.gateway_id = g.id
-      ORDER BY g.gmac, b.dmac, b.type
+      ORDER BY g.gmac, b.dmac, b.type;
     `);
 
-    const result = [];
-
+    const rows = result.recordset;
     const groupedByGmac = {};
+    const finalResult = [];
 
     rows.forEach((row) => {
       const { gmac, dmac, type, vbatt, temp, rssi, refpower } = row;
 
-      // kalau blm ada buat entri baru
       if (!groupedByGmac[gmac]) {
         groupedByGmac[gmac] = {
           gmac: gmac,
           beacons: {},
         };
-        result.push(groupedByGmac[gmac]);
+        finalResult.push(groupedByGmac[gmac]);
       }
 
-      // kalau dmac blm ada buat entri baru
-      //   if (!groupedByGmac[gmac].beacons[dmac]) {
-      //     groupedByGmac[gmac].beacons[dmac] = {
-      //       type1: {},
-      //       type4: {},
-      //     };
-      //   }
-
-      //   // tampilkan sesuai type
-      //   if (type === 1) {
-      //     groupedByGmac[gmac].beacons[dmac].type1 = { vbatt, temp };
-      //   } else if (type === 4) {
-      //     groupedByGmac[gmac].beacons[dmac].type4 = { rssi, refpower };
-      //   }
-      // });
-
-      //
-
-      // kalau dmac blm ada buat entri baru
       if (!groupedByGmac[gmac].beacons[dmac]) {
         groupedByGmac[gmac].beacons[dmac] = {
           type1: [],
@@ -135,7 +106,6 @@ app.get("/beacons-data", async (req, res) => {
         };
       }
 
-      //   // tampilkan sesuai type
       if (type === 1) {
         groupedByGmac[gmac].beacons[dmac].type1.push({ vbatt, temp });
       } else if (type === 4) {
@@ -145,9 +115,10 @@ app.get("/beacons-data", async (req, res) => {
 
     res.json({
       message: "Data berhasil diambil",
-      data: result,
+      data: finalResult,
     });
   } catch (error) {
+    console.error("Error fetching beacons data:", error.message);
     res.status(500).json({
       message: "Gagal ambil data",
       error: error.message,
@@ -155,21 +126,35 @@ app.get("/beacons-data", async (req, res) => {
   }
 });
 
-// app.get("/beacon-data", async (req, res) => {
-//   try {
-//     var dbPool = getDbPool();
-//     var [rows] = await dbPool.query(`
-//       SELECT b.*, g.gmac
-//       FROM beacons b
-//       JOIN gateways g ON b.gateway_id = g.id
-//     `);
-//     res.json({ message: "Stored beacon data", data: rows });
-//   } catch (error) {
-//     res
-//       .status(500)
-//       .json({ message: "Error fetching data", error: error.message });
-//   }
-// });
+app.get("/rssi-chart-data", async (req, res) => {
+  try {
+    const dbPool = getDbPool();
+    const result = await dbPool.request().query(`
+      SELECT g.gmac, b.dmac, b.rssi
+      FROM beacons b
+      JOIN gateways g ON b.gateway_id = g.id
+      WHERE b.rssi IS NOT NULL
+      ORDER BY g.gmac, b.dmac, b.id;
+    `);
+
+    const data = result.recordset.map((row) => ({
+      gmac: row.gmac,
+      dmac: row.dmac,
+      rssi: row.rssi,
+    }));
+
+    res.json({
+      message: "RSSI data per beacon fetched",
+      data: data,
+    });
+  } catch (error) {
+    console.error("Error fetching RSSI chart data:", error.message);
+    res.status(500).json({
+      message: "Failed to fetch RSSI chart data",
+      error: error.message,
+    });
+  }
+});
 
 app.get("/", (req, res) => {
   res.json({ message: "Server is running" });
@@ -180,7 +165,7 @@ async function startServer() {
     await initializeDatabase();
     startMqttClient(saveToDatabase);
     app.listen(port, () => {
-      console.log("HTTP server running at http://localhost:" + port);
+      console.log(`HTTP server running at http://localhost:${port}`);
     });
   } catch (error) {
     console.error("Server startup failed:", error.message);

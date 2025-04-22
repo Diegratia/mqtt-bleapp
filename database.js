@@ -1,60 +1,74 @@
-const mysql = require("mysql2/promise");
+const sql = require("mssql");
 
 const globalpooldb = {
   db: null,
 };
 
 const dbConfig = {
-  host: "localhost",
-  user: "root",
-  password: "",
+  user: "sa",
+  password: "Password_123#",
+  server: "localhost",
   database: "mqttble_app",
+  options: {
+    encrypt: false,
+    trustServerCertificate: true,
+  },
 };
 
 async function initializeDatabase() {
   try {
-    //create db
-    const connection = await mysql.createConnection({
-      host: dbConfig.host,
+    const pool = await sql.connect({
       user: dbConfig.user,
       password: dbConfig.password,
-      // database: dbConfig.database,
+      server: dbConfig.server,
+      options: {
+        encrypt: false,
+        trustServerCertificate: true,
+      },
     });
-    await connection.query("CREATE DATABASE IF NOT EXISTS mqttble_app");
-    await connection.end();
 
-    const db = await mysql.createConnection(dbConfig);
+    await pool.request()
+      .query(`IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'mqttble_app')
+      BEGIN
+        CREATE DATABASE mqttble_app;
+      END
+    `);
+
+    await pool.close();
+
+    const db = await sql.connect(dbConfig);
 
     // gateways
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS gateways (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+    await db.request().query(`
+      IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='gateways' AND xtype='U')
+      CREATE TABLE gateways (
+        id INT IDENTITY(1,1) PRIMARY KEY,
         gmac VARCHAR(12) NOT NULL UNIQUE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+        created_at DATETIME DEFAULT GETDATE()
+      );
     `);
 
     // beacons
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS beacons (
-        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    await db.request().query(`
+      IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='beacons' AND xtype='U')
+      CREATE TABLE beacons (
+        id BIGINT IDENTITY(1,1) PRIMARY KEY,
         gateway_id INT NOT NULL,
         type TINYINT NOT NULL,
         dmac VARCHAR(12) NOT NULL,
         refpower SMALLINT,
-        rssi Float,
+        rssi FLOAT,
         vbatt INT,
         temp FLOAT,
         time DATETIME NOT NULL,
         FOREIGN KEY (gateway_id) REFERENCES gateways(id)
-      )
+      );
     `);
 
-    await db.end();
-    globalpooldb.db = mysql.createPool(dbConfig);
-    console.log("Database dan tabel berhasil diinisialisasi");
+    globalpooldb.db = db;
+    console.log("Database dan tabel berhasil diinisialisasi (MSSQL)");
   } catch (error) {
-    console.error("Inisialisasi database gagal:", error);
+    console.error("Inisialisasi database MSSQL gagal:", error);
     throw error;
   }
 }
