@@ -12,7 +12,7 @@ var options = {
 
 let rssiBufferPerGateway = {};
 let readyToSendData = [];
-const windowSize = 100;
+const windowSize = 10;
 
 function startMqttClient(messageCallback) {
   var client = mqtt.connect(Broker_URL, options);
