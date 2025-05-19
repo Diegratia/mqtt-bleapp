@@ -2,12 +2,13 @@ const sql = require("mssql");
 
 const globalpooldb = {
   db: null,
+  testTable: null,
 };
 
 const dbConfig = {
   user: "sa",
   password: "Password_123#",
-  server: "192.168.1.116",
+  server: "172.20.10.2",
   database: "mqttble_app",
   options: {
     encrypt: false,
@@ -15,7 +16,7 @@ const dbConfig = {
   },
 };
 
-async function initializeDatabase() {
+async function initializeDatabase(testTableName = null) {
   try {
     const pool = await sql.connect({
       user: dbConfig.user,
@@ -65,6 +66,30 @@ async function initializeDatabase() {
       );
     `);
 
+    if (testTableName) {
+      globalpooldb.testTable = testTableName;
+      await db.request().query(`
+        IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='${testTableName}' AND xtype='U')
+        CREATE TABLE ${testTableName} (
+          id BIGINT IDENTITY(1,1) PRIMARY KEY,
+          gateway_id INT NOT NULL,
+          type TINYINT NOT NULL,
+          dmac VARCHAR(12) NOT NULL,
+          refpower SMALLINT,
+          rssi FLOAT,
+          vbatt INT,
+          temp FLOAT,
+          time DATETIME NOT NULL,
+          meter FLOAT,
+          measure FLOAT,
+          FOREIGN KEY (gateway_id) REFERENCES gateways(id)
+        );
+      `);
+      console.log(
+        `Test table '${testTableName}' initialized or already exists`
+      );
+    }
+
     globalpooldb.db = db;
     console.log("Database dan tabel berhasil diinisialisasi (MSSQL)");
   } catch (error) {
@@ -77,7 +102,10 @@ function getDbPool() {
   if (!globalpooldb.db) {
     throw new Error("Database pool not initialized");
   }
-  return globalpooldb.db;
+  return {
+    db: globalpooldb.db,
+    testTable: globalpooldb.testTable,
+  };
 }
 
 module.exports = { initializeDatabase, getDbPool };

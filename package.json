@@ -17,6 +17,7 @@
     "express": "^5.1.0",
     "kalman-filter": "^2.3.0",
     "log-timestamp": "^0.3.0",
+    "minimist": "^1.2.8",
     "mqtt": "^5.11.0",
     "mssql": "^11.0.1",
     "sma": "^0.1.1"

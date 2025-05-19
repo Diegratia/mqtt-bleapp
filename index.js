@@ -4,114 +4,80 @@ const { initializeDatabase, getDbPool } = require("./database");
 const { startMqttClient } = require("./mqtt");
 const sql = require("mssql");
 const path = require("path");
+const minimist = require("minimist");
 
 const app = express();
 const port = 3000;
 
+const args = minimist(process.argv.slice(2));
+const testTableName = args.t;
+
 app.use(cors({ origin: "*" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-// async function saveToDatabase(data) {
-//   try {
-//     if (!data.obj || !Array.isArray(data.obj) || data.obj.length === 0) {
-//       console.warn("Invalid data received, skipping save:", data);
-//       return;
-//     }
-
-//     const gmac = data.gmac || data.obj[0].gmac;
-//     if (!gmac) {
-//       console.warn("No GMAC found in data, skipping save:", data);
-//       return;
-//     }
-
-//     const dbPool = getDbPool();
-
-//     await dbPool.request().input("gmac", sql.VarChar(12), gmac).query(`
-//         IF NOT EXISTS (SELECT 1 FROM gateways WHERE gmac = @gmac)
-//         INSERT INTO gateways (gmac) VALUES (@gmac);
-//       `);
-
-//     const gatewayResult = await dbPool
-//       .request()
-//       .input("gmac", sql.VarChar(12), gmac)
-//       .query(`SELECT id FROM gateways WHERE gmac = @gmac;`);
-
-//     const gatewayId = gatewayResult.recordset[0]?.id;
-//     if (!gatewayId) {
-//       throw new Error(
-//         `Gateway with gmac=${gmac} not found after insert/select`
-//       );
-//     }
-
-//     for (const obj of data.obj) {
-//       if (!obj.dmac) {
-//         console.warn("Beacon missing dmac, skipping:", obj);
-//         continue;
-//       }
-//       console.log(obj);
-
-//       await dbPool
-//         .request()
-//         .input("gateway_id", sql.Int, gatewayId)
-//         .input("type", sql.TinyInt, obj.type)
-//         .input("dmac", sql.VarChar(12), obj.dmac)
-//         .input("refpower", sql.SmallInt, obj.refpower ?? null)
-//         .input("rssi", sql.Float, obj.rssi ?? null)
-//         .input("vbatt", sql.Int, obj.vbatt ?? null)
-//         .input("temp", sql.Float, obj.temp ?? null)
-//         .input("meter", sql.Float, obj.meter ?? null)
-//         .input("measure", sql.Float, obj.measure ?? null)
-//         .input("time", sql.DateTime, obj.time ? new Date(obj.time) : new Date())
-//         .query(`
-//           INSERT INTO beacons (
-//             gateway_id, type, dmac, refpower, rssi, vbatt, temp, time
-//           ) VALUES (
-//             @gateway_id, @type, @dmac, @refpower, @rssi, @vbatt, @temp, @time
-//           );
-//         `);
-//     }
-
-//     console.log(`Saved beacons for gateway ${gmac} successfully.`);
-//   } catch (error) {
-//     console.error("Error saving to database:", error.message, error.stack);
-//   }
-// }
-
 async function saveToDatabase(obj) {
-  if (!obj.dmac) {
-    console.warn("Beacon missing dmac, skipping:", obj);
-    return;
-  }
-  const dbPool = getDbPool();
-  console.log(obj);
+  try {
+    if (!obj.dmac) {
+      console.warn("Beacon missing dmac, skipping:", obj);
+      return;
+    }
 
-  await dbPool
-    .request()
-    .input("gateway_id", sql.Int, 1)
-    .input("type", sql.TinyInt, obj.type)
-    .input("dmac", sql.VarChar(12), obj.dmac)
-    .input("refpower", sql.SmallInt, obj.refpower ?? null)
-    .input("rssi", sql.Float, obj.rssi ?? null)
-    .input("vbatt", sql.Int, obj.vbatt ?? null)
-    .input("temp", sql.Float, obj.temp ?? null)
-    .input("meter", sql.Float, obj.meter ?? 0)
-    .input("measure", sql.Float, obj.measure ?? 0)
-    .input("time", sql.DateTime, obj.time ? new Date(obj.time) : new Date())
-    .query(`
-      INSERT INTO beacons (
-        gateway_id, type, dmac, refpower, rssi, vbatt, temp, time, meter, measure
-      ) VALUES (
-        @gateway_id, @type, @dmac, @refpower, @rssi, @vbatt, @temp, @time, @meter, @measure
-      );
-    `);
+    const { db, testTable } = getDbPool();
+    const tableName = testTable || "beacons";
+
+    await db
+      .request()
+      .input("gmac", sql.VarChar(12), obj.gmac || "DEFAULT_GMAC").query(`
+        IF NOT EXISTS (SELECT 1 FROM gateways WHERE gmac = @gmac)
+        INSERT INTO gateways (gmac) VALUES (@gmac);
+      `);
+
+    const gatewayResult = await db
+      .request()
+      .input("gmac", sql.VarChar(12), obj.gmac || "DEFAULT_GMAC")
+      .query(`SELECT id FROM gateways WHERE gmac = @gmac;`);
+
+    const gatewayId = gatewayResult.recordset[0]?.id;
+    if (!gatewayId) {
+      throw new Error(`Gateway with gmac=${obj.gmac} not found`);
+    }
+
+    console.log(`Saving to table ${tableName}:`, obj);
+
+    await db
+      .request()
+      .input("gateway_id", sql.Int, gatewayId)
+      .input("type", sql.TinyInt, obj.type)
+      .input("dmac", sql.VarChar(12), obj.dmac)
+      .input("refpower", sql.SmallInt, obj.refpower ?? null)
+      .input("rssi", sql.Float, obj.rssi ?? null)
+      .input("vbatt", sql.Int, obj.vbatt ?? null)
+      .input("temp", sql.Float, obj.temp ?? null)
+      .input("meter", sql.Float, obj.meter ?? 0)
+      .input("measure", sql.Float, obj.measure ?? 0)
+      .input("time", sql.DateTime, obj.time ? new Date(obj.time) : new Date())
+      .query(`
+        INSERT INTO ${tableName} (
+          gateway_id, type, dmac, refpower, rssi, vbatt, temp, time, meter, measure
+        ) VALUES (
+          @gateway_id, @type, @dmac, @refpower, @rssi, @vbatt, @temp, @time, @meter, @measure
+        );
+      `);
+
+    console.log(`Saved beacon to ${tableName} for dmac ${obj.dmac}`);
+  } catch (error) {
+    console.error("Error saving to database:", error.message, error.stack);
+  }
 }
 
 app.get("/beacons-data", async (req, res) => {
   try {
-    const dbPool = getDbPool();
-    const result = await dbPool.request().query(`
+    const { db, testTable } = getDbPool();
+    const tableName = testTable || "beacons";
+
+    const result = await db.request().query(`
       SELECT g.gmac, b.dmac, b.type, b.vbatt, b.temp, b.rssi, b.refpower
-      FROM beacons b
+      FROM ${tableName} b
       JOIN gateways g ON b.gateway_id = g.id
       ORDER BY g.gmac, b.dmac, b.type;
     `);
@@ -146,7 +112,7 @@ app.get("/beacons-data", async (req, res) => {
     });
 
     res.json({
-      message: "Data berhasil diambil",
+      message: `Data berhasil diambil dari ${tableName}`,
       data: finalResult,
     });
   } catch (error) {
@@ -160,10 +126,12 @@ app.get("/beacons-data", async (req, res) => {
 
 app.get("/rssi-chart-data", async (req, res) => {
   try {
-    const dbPool = getDbPool();
-    const result = await dbPool.request().query(`
+    const { db, testTable } = getDbPool();
+    const tableName = testTable || "beacons";
+
+    const result = await db.request().query(`
       SELECT g.gmac, b.dmac, b.rssi
-      FROM beacons b
+      FROM ${tableName} b
       JOIN gateways g ON b.gateway_id = g.id
       WHERE b.rssi IS NOT NULL
       ORDER BY g.gmac, b.dmac, b.id;
@@ -176,7 +144,7 @@ app.get("/rssi-chart-data", async (req, res) => {
     }));
 
     res.json({
-      message: "RSSI data per beacon fetched",
+      message: `RSSI data per beacon fetched from ${tableName}`,
       data: data,
     });
   } catch (error) {
@@ -194,7 +162,7 @@ app.get("/", (req, res) => {
 
 async function startServer() {
   try {
-    await initializeDatabase();
+    await initializeDatabase(testTableName);
     startMqttClient(saveToDatabase);
     app.listen(port, () => {
       console.log(`HTTP server running at http://localhost:${port}`);
