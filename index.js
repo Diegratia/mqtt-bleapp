@@ -16,58 +16,35 @@ app.use(cors({ origin: "*" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 async function saveToDatabase(obj) {
-  try {
-    if (!obj.dmac) {
-      console.warn("Beacon missing dmac, skipping:", obj);
-      return;
-    }
+  if (!obj.dmac) {
+    console.warn("Beacon missing dmac, skipping:", obj);
+    return;
+  }
 
-    const { db, testTable } = getDbPool();
-    const tableName = testTable || "beacons";
+  const { db, testTable } = getDbPool();
+  const tableName = testTable;
 
-    await db
-      .request()
-      .input("gmac", sql.VarChar(12), obj.gmac || "DEFAULT_GMAC").query(`
-        IF NOT EXISTS (SELECT 1 FROM gateways WHERE gmac = @gmac)
-        INSERT INTO gateways (gmac) VALUES (@gmac);
-      `);
+  console.log(`save ke ${tableName}:`, obj);
 
-    const gatewayResult = await db
-      .request()
-      .input("gmac", sql.VarChar(12), obj.gmac || "DEFAULT_GMAC")
-      .query(`SELECT id FROM gateways WHERE gmac = @gmac;`);
-
-    const gatewayId = gatewayResult.recordset[0]?.id;
-    if (!gatewayId) {
-      throw new Error(`Gateway with gmac=${obj.gmac} not found`);
-    }
-
-    console.log(`Saving to table ${tableName}:`, obj);
-
-    await db
-      .request()
-      .input("gateway_id", sql.Int, gatewayId)
-      .input("type", sql.TinyInt, obj.type)
-      .input("dmac", sql.VarChar(12), obj.dmac)
-      .input("refpower", sql.SmallInt, obj.refpower ?? null)
-      .input("rssi", sql.Float, obj.rssi ?? null)
-      .input("vbatt", sql.Int, obj.vbatt ?? null)
-      .input("temp", sql.Float, obj.temp ?? null)
-      .input("meter", sql.Float, obj.meter ?? 0)
-      .input("measure", sql.Float, obj.measure ?? 0)
-      .input("time", sql.DateTime, obj.time ? new Date(obj.time) : new Date())
-      .query(`
+  await db
+    .request()
+    .input("gateway_id", sql.Int, 1)
+    .input("type", sql.TinyInt, obj.type)
+    .input("dmac", sql.VarChar(12), obj.dmac)
+    .input("refpower", sql.SmallInt, obj.refpower ?? null)
+    .input("rssi", sql.Float, obj.rssi ?? null)
+    .input("vbatt", sql.Int, obj.vbatt ?? null)
+    .input("temp", sql.Float, obj.temp ?? null)
+    .input("meter", sql.Float, obj.meter ?? 0)
+    .input("measure", sql.Float, obj.measure ?? 0)
+    .input("time", sql.DateTime, obj.time ? new Date(obj.time) : new Date())
+    .query(`
         INSERT INTO ${tableName} (
           gateway_id, type, dmac, refpower, rssi, vbatt, temp, time, meter, measure
         ) VALUES (
           @gateway_id, @type, @dmac, @refpower, @rssi, @vbatt, @temp, @time, @meter, @measure
         );
       `);
-
-    console.log(`Saved beacon to ${tableName} for dmac ${obj.dmac}`);
-  } catch (error) {
-    console.error("Error saving to database:", error.message, error.stack);
-  }
 }
 
 app.get("/beacons-data", async (req, res) => {

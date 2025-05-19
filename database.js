@@ -8,7 +8,7 @@ const globalpooldb = {
 const dbConfig = {
   user: "sa",
   password: "Password_123#",
-  server: "172.20.10.2",
+  server: "192.168.1.165",
   database: "mqttble_app",
   options: {
     encrypt: false,
@@ -62,6 +62,8 @@ async function initializeDatabase(testTableName = null) {
         vbatt INT,
         temp FLOAT,
         time DATETIME NOT NULL,
+        meter FLOAT,
+        measure FLOAT,
         FOREIGN KEY (gateway_id) REFERENCES gateways(id)
       );
     `);
