@@ -230,6 +230,7 @@ function startMqttClient(messageCallback) {
       var data = JSON.parse(message_str);
 
       const gatewayId = data.gmac;
+      console.log(gatewayId);
 
       if (data.obj) {
         data.obj.forEach((beacon) => {

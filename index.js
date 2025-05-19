@@ -36,7 +36,18 @@ async function saveToDatabase(obj) {
 
   await db
     .request()
-    .input("gateway_id", sql.Int, 1)
+    .input(
+      "gateway_id",
+      sql.Int,
+      obj.gmac
+        ? (
+            await db
+              .request()
+              .input("gmac", sql.VarChar(12), gmac)
+              .query(`SELECT id FROM gateways WHERE gmac = @gmac`)
+          ).recordset[0].id
+        : null
+    )
     .input("type", sql.TinyInt, obj.type)
     .input("dmac", sql.VarChar(12), obj.dmac)
     .input("refpower", sql.SmallInt, obj.refpower ?? null)
