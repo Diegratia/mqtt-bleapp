@@ -1,5 +1,6 @@
 var mqtt = require("mqtt");
 const { KalmanFilter } = require("kalman-filter");
+
 var Topic = "test/topic";
 var Broker_URL = "mqtt://localhost:1884";
 
@@ -8,6 +9,28 @@ var options = {
   username: "test1",
   password: "test1",
 };
+
+const windowSize = 20; // Define the window size for moving average
+const rssiBuffers = new Map(); // Store RSSI buffers per dmac
+const kFilter = new KalmanFilter(); // Kalman filter instance
+
+// Function to calculate Moving Average (MA) per device (dmac)
+function calculateMovingAverage(dmac, newRssi) {
+  if (!rssiBuffers.has(dmac)) {
+    rssiBuffers.set(dmac, []);
+  }
+
+  const buffer = rssiBuffers.get(dmac);
+  buffer.push(newRssi);
+
+  if (buffer.length > windowSize) {
+    buffer.shift(); // Maintain window size
+  }
+
+  // Calculate moving average
+  const avg = buffer.reduce((acc, val) => acc + val, 0) / buffer.length;
+  return avg;
+}
 
 function startMqttClient(messageCallback) {
   var client = mqtt.connect(Broker_URL, options);
@@ -34,42 +57,40 @@ function startMqttClient(messageCallback) {
     try {
       var message_str = message.toString();
       var data = JSON.parse(message_str);
-      if (data.obj) {
-        const rssis = []; // ARRAY untuk nampung semua RSSI valid
 
-        // Kumpulkan semua RSSI valid
+      if (data.obj) {
         data.obj.forEach((beacon) => {
           if (beacon.rssi !== undefined && !isNaN(beacon.rssi)) {
-            rssis.push(beacon.rssi);
+            console.log(
+              `Received RSSI: ${beacon.rssi} for dmac: ${beacon.dmac}`
+            );
+
+            // Step 1: Apply Moving Average (MA) for smoothing the signal
+            const avgRssi = calculateMovingAverage(beacon.dmac, beacon.rssi);
+            console.log(
+              `Moving Average RSSI for ${beacon.dmac}: ${avgRssi.toFixed(2)}`
+            );
+
+            // Step 2: Apply Kalman Filter for further smoothing
+            const filteredRssi = kFilter.filter(avgRssi);
+            console.log(
+              `Kalman Filtered RSSI for ${beacon.dmac}: ${filteredRssi.toFixed(
+                2
+              )}`
+            );
+
+            // Step 3: Send filtered data to callback or process further
+            // e.g., messageCallback(filteredRssi);
           } else {
             console.log(`Invalid RSSI value: ${beacon.rssi}`);
           }
         });
-
-        // Setelah semua RSSI dikumpulkan, baru difilter
-        if (rssis.length > 0) {
-          const kFilter = new KalmanFilter();
-          const filteredRssis = kFilter.filterAll(rssis);
-
-          // Tampilkan hasil filter
-          console.log(`Raw RSSI array: ${rssis}`);
-          console.log(`Filtered RSSI array: ${filteredRssis}`);
-
-          // (Optional) kalau mau assign balik hasil filter ke masing-masing beacon
-          filteredRssis.forEach((filteredValue, index) => {
-            if (data.obj[index]) {
-              data.obj[index].filteredRssi = filteredValue;
-              console.log(`rssi balik: ${filteredValue}`);
-            }
-          });
-        }
       }
-
-      // messageCallback(data);
     } catch (error) {
       console.error("Error parsing message:", error.message);
     }
   }
+
   return client;
 }
 
