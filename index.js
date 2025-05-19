@@ -21,7 +21,15 @@ async function saveToDatabase(obj) {
     return;
   }
 
+  const gmac = obj.gmac || obj.obj[0].gmac;
+
   const { db, testTable } = getDbPool();
+
+  await db.request().input("gmac", sql.VarChar(12), gmac).query(`
+    IF NOT EXISTS (SELECT 1 FROM gateways WHERE gmac = @gmac)
+    INSERT INTO gateways (gmac) VALUES (@gmac);
+  `);
+
   const tableName = testTable;
 
   console.log(`save ke ${tableName}:`, obj);

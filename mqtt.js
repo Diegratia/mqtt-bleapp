@@ -229,6 +229,8 @@ function startMqttClient(messageCallback) {
       // console.log(message_str);
       var data = JSON.parse(message_str);
 
+      const gatewayId = data.gmac;
+
       if (data.obj) {
         data.obj.forEach((beacon) => {
           if (
@@ -243,9 +245,13 @@ function startMqttClient(messageCallback) {
             var cal = calculateDistance(beacon.rssi, refpower, 2, 10);
             beacon.meter = cal.totalDistance;
             beacon.measure = measure;
-            // console.log(cal);
 
-            messageCallback(beacon);
+            let filteredBeacon = {
+              ...beacon,
+              gmac: gatewayId,
+            };
+
+            messageCallback(filteredBeacon);
           }
         });
       }
