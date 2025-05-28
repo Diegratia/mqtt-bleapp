@@ -30,7 +30,7 @@ async function saveToDatabase(obj) {
     INSERT INTO gateways (gmac) VALUES (@gmac);
   `);
 
-  const tableName = testTable;
+  const tableName = testTable ?? "beacons";
 
   console.log(`save ke ${tableName}:`, obj);
 
@@ -55,6 +55,7 @@ async function saveToDatabase(obj) {
     .input("vbatt", sql.Int, obj.vbatt ?? null)
     .input("temp", sql.Float, obj.temp ?? null)
     .input("meter", sql.Float, obj.meter ?? 0)
+    // .input("meter", sql.Float, parseFloat((obj.meter ?? 0).toFixed(3)))
     .input("measure", sql.Float, obj.measure ?? 0)
     .input("time", sql.DateTime, obj.time ? new Date(obj.time) : new Date())
     .query(`
