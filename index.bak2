@@ -32,7 +32,7 @@ async function saveToDatabase(obj) {
 
   const tableName = testTable ?? "beacons";
 
-  // console.log(`save ke ${tableName}:`, obj);
+  console.log(`save ke ${tableName}:`, obj);
 
   await db
     .request()
@@ -55,16 +55,14 @@ async function saveToDatabase(obj) {
     .input("vbatt", sql.Int, obj.vbatt ?? null)
     .input("temp", sql.Float, obj.temp ?? null)
     .input("meter", sql.Float, obj.meter ?? 0)
-    .input("calc_dist", sql.Float, obj.calcDist ?? 0)
-    .input("gmac", sql.VarChar, obj.gmac ?? null)
     // .input("meter", sql.Float, parseFloat((obj.meter ?? 0).toFixed(3)))
     .input("measure", sql.Float, obj.measure ?? 0)
     .input("time", sql.DateTime, obj.time ? new Date(obj.time) : new Date())
     .query(`
         INSERT INTO ${tableName} (
-          gateway_id, type, dmac, refpower, rssi, vbatt, temp, time, meter, calc_dist, gmac, measure
+          gateway_id, type, dmac, refpower, rssi, vbatt, temp, time, meter, measure
         ) VALUES (
-          @gateway_id, @type, @dmac, @refpower, @rssi, @vbatt, @temp, @time, @meter, @calc_dist, @gmac, @measure
+          @gateway_id, @type, @dmac, @refpower, @rssi, @vbatt, @temp, @time, @meter, @measure
         );
       `);
 }
