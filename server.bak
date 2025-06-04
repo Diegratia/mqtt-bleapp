@@ -13,11 +13,9 @@ const gateways = {
   "282C02227F1A": { x: 40, y: 120 },
 };
 
-const scale = 0.1; // pixel per meter
-const spreadLeft = 4; // Sebaran ke kiri (piksel)
-const spreadRight = 4; // Sebaran ke kanan (piksel)
-const spreadAlong = 0; // Sebaran sepanjang garis (piksel, opsional)
-const numPoints = 1; // Hanya 1 titik per "beep"
+const scale = 0.1; // pixel per meter (bisa disesuaikan)
+const spread = 10; // pixel sebaran kiri-kanan
+const numPoints = 2; // Meningkatkan untuk simulasi yang lebih mirip gambar
 
 // Data beacon sebagai objek JavaScript
 const beaconData = [
@@ -184,10 +182,9 @@ function generateBeaconPointsBetweenReaders(start, end, distA, distB) {
 
   const points = [];
   for (let i = 0; i < numPoints; i++) {
-    // Offset tegak lurus dengan sebaran kiri dan kanan
-    const offsetPerp = Math.random() * (spreadRight + spreadLeft) - spreadLeft; // -3 hingga +3 piksel
-    // Offset sepanjang garis (opsional)
-    const offsetAlong = (Math.random() * 2 - 1) * spreadAlong; // -5 hingga +5 piksel
+    // Offset tegak lurus dan sepanjang garis untuk distribusi yang lebih realistis
+    const offsetPerp = (Math.random() * 2 - 1) * spread; // -10 hingga +10
+    const offsetAlong = (Math.random() * 2 - 1) * (spread / 2); // -5 hingga +5
     const x = Math.round(baseX + perpX * offsetPerp + ux * offsetAlong);
     const y = Math.round(baseY + perpY * offsetPerp + uy * offsetAlong);
     points.push({ x, y });
@@ -216,54 +213,34 @@ function calculateDistanceInfo(start, end) {
 function generateSimulatedBeaconData() {
   const beaconId = "BC572905DB80";
 
-  // Kelompokkan data berdasarkan waktu dan tag (dmac)
+  // Kelompokkan data berdasarkan waktu
   const timeGroups = {};
   beaconData.forEach((entry) => {
     const time = entry.time;
-    const dmac = entry.dmac;
     if (!timeGroups[time]) timeGroups[time] = {};
-    if (!timeGroups[time][dmac]) timeGroups[time][dmac] = {};
-    timeGroups[time][dmac][entry.gmac] = parseFloat(entry.calc_dist);
+    timeGroups[time][entry.gmac] = parseFloat(entry.calc_dist);
   });
 
-  // Buat simulasi untuk setiap tag dan waktu
+  // Buat simulasi untuk semua pasangan gateway
   const simulations = [];
-  Object.entries(timeGroups).forEach(([time, tags]) => {
-    Object.entries(tags).forEach(([dmac, distances]) => {
-      const gatewayIds = Object.keys(distances);
-
-      // Kumpulkan semua pasangan gateway yang mungkin
-      const possiblePairs = [];
-      for (let i = 0; i < gatewayIds.length; i++) {
-        for (let j = i + 1; j < gatewayIds.length; j++) {
-          const readerA = gatewayIds[i];
-          const readerB = gatewayIds[j];
-          possiblePairs.push({
-            readerA,
-            readerB,
-            distA: distances[readerA],
-            distB: distances[readerB],
-          });
-        }
-      }
-
-      // Pilih satu pasangan gateway secara acak
-      if (possiblePairs.length > 0) {
-        const randomPair =
-          possiblePairs[Math.floor(Math.random() * possiblePairs.length)];
+  Object.entries(timeGroups).forEach(([time, distances]) => {
+    const gatewayIds = Object.keys(distances);
+    for (let i = 0; i < gatewayIds.length; i++) {
+      for (let j = i + 1; j < gatewayIds.length; j++) {
+        const readerA = gatewayIds[i];
+        const readerB = gatewayIds[j];
         simulations.push({
-          dmac,
-          readerA: randomPair.readerA,
-          readerB: randomPair.readerB,
-          distA: randomPair.distA,
-          distB: randomPair.distB,
+          readerA,
+          readerB,
+          distA: distances[readerA],
+          distB: distances[readerB],
           time,
         });
       }
-    });
+    }
   });
 
-  return simulations.map(({ dmac, readerA, readerB, distA, distB, time }) => {
+  return simulations.map(({ readerA, readerB, distA, distB, time }) => {
     const start = gateways[readerA];
     const end = gateways[readerB];
 
@@ -271,7 +248,7 @@ function generateSimulatedBeaconData() {
     const { jarakPixel, jarakMeter } = calculateDistanceInfo(start, end);
 
     return {
-      beaconId: dmac,
+      beaconId,
       pair: `${readerA}_${readerB}`,
       from: readerA,
       to: readerB,
