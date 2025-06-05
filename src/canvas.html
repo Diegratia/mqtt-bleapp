@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Beacon Simulation</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        background-color: #f0f0f0;
+        margin: 0;
+        padding: 20px;
+      }
+      h1 {
+        color: #333;
+        font-size: 2.5em;
+      }
+      #simulationCanvas {
+        border: 3px solid #333;
+        background-color: white;
+      }
+      #refreshButton {
+        margin-top: 30px;
+        padding: 15px 30px;
+        font-size: 20px;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+      #refreshButton:hover {
+        background-color: #45a049;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Beacon Simulation</h1>
+    <canvas id="simulationCanvas" width="500" height="500"></canvas>
+    <button id="refreshButton" onclick="fetchAndDraw()">
+      Refresh Simulation
+    </button>
+
+    <script>
+      const canvas = document.getElementById("simulationCanvas");
+      const ctx = canvas.getContext("2d");
+
+      const scaleFactor = 2.5;
+
+      const gatewayColors = {
+        "282C02227F53": "yellow",
+        "282C02227FDD": "purple",
+        "282C02227F1A": "blue",
+      };
+
+      const gateways = {
+        "282C02227F53": { x: 50 * scaleFactor, y: 150 * scaleFactor },
+        "282C02227FDD": { x: 20 * scaleFactor, y: 100 * scaleFactor },
+        "282C02227F1A": { x: 40 * scaleFactor, y: 120 * scaleFactor },
+      };
+
+      function clearCanvas() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+
+      function drawGateways() {
+        for (const [gmac, pos] of Object.entries(gateways)) {
+          ctx.fillStyle = gatewayColors[gmac];
+          ctx.fillRect(pos.x - 10, pos.y - 10, 20, 20);
+        }
+      }
+
+      function drawImaginaryLines(fromGmac, toGmac) {
+        const start = gateways[fromGmac];
+        const end = gateways[toGmac];
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.strokeStyle = "black";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
+      function drawBeacons(beacons) {
+        beacons.forEach((beacon) => {
+          beacon.points.forEach((point) => {
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = "red";
+            ctx.fill();
+          });
+        });
+      }
+
+      async function fetchAndDraw() {
+        try {
+          const response = await fetch("http://localhost:3030/api/beacons");
+          const beacons = await response.json();
+
+          clearCanvas();
+
+          const pairsDrawn = new Set();
+          beacons.forEach((beacon) => {
+            const pairKey = `${beacon.from}_${beacon.to}`;
+            if (!pairsDrawn.has(pairKey)) {
+              drawImaginaryLines(beacon.from, beacon.to);
+              pairsDrawn.add(pairKey);
+            }
+          });
+
+          drawGateways();
+          drawBeacons(beacons);
+        } catch (error) {
+          console.error("Error fetching beacon data:", error);
+          alert(
+            "Failed to fetch beacon data. Make sure the server is running at http://localhost:3030"
+          );
+        }
+      }
+
+      window.onload = fetchAndDraw;
+    </script>
+  </body>
+</html>
