@@ -6,22 +6,21 @@ const port = 3030;
 app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-// Koordinat gateway (sinkron dengan frontend)
+const scaleFactor = 1;
+
 const gateways = {
-  "282C02227F53": { x: 50, y: 150 },
-  "282C02227FDD": { x: 20, y: 100 },
-  "282C02227F1A": { x: 40, y: 120 },
+  "282C02227F53": { x: 50 * scaleFactor, y: 150 * scaleFactor },
+  "282C02227FDD": { x: 20 * scaleFactor, y: 100 * scaleFactor },
+  "282C02227F1A": { x: 40 * scaleFactor, y: 120 * scaleFactor },
 };
 
-const scale = 0.1; // pixel per meter
-const spreadLeft = 4; // Sebaran ke kiri (piksel)
-const spreadRight = 4; // Sebaran ke kanan (piksel)
-const spreadAlong = 0; // Sebaran sepanjang garis (piksel, opsional)
-const numPoints = 1; // Hanya 1 titik per "beep"
+const scale = 1;
+const spreadLeft = 3;
+const spreadRight = 3;
+const spreadAlong = 3;
+const numPoints = 1;
 
-// Data beacon sebagai objek JavaScript
 const beaconData = [
-  // Entri untuk ID 3
   {
     id: 3,
     gateway_id: 1,
@@ -67,7 +66,6 @@ const beaconData = [
     gmac: "282C02227F1A",
     measure: -59,
   },
-  // Entri untuk ID 7
   {
     id: 7,
     gateway_id: 1,
@@ -113,7 +111,6 @@ const beaconData = [
     gmac: "282C02227F1A",
     measure: -59,
   },
-  // Entri untuk ID 278
   {
     id: 278,
     gateway_id: 1,
@@ -161,7 +158,7 @@ const beaconData = [
   },
 ];
 
-function generateBeaconPointsBetweenReaders(start, end, distA, distB) {
+function generateBeaconPointsBetweenReaders(start, end, firstDist, secondDist) {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const length = Math.sqrt(dx * dx + dy * dy);
@@ -170,26 +167,33 @@ function generateBeaconPointsBetweenReaders(start, end, distA, distB) {
   const ux = dx / length;
   const uy = dy / length;
 
-  // Gunakan rasio berdasarkan jarak (distA / (distA + distB))
-  const totalDist = distA + distB;
-  const ratio = distA / totalDist;
+  const lengthMeter = length * scale;
 
-  // Hitung posisi dasar beacon di sepanjang garis
-  const baseX = start.x + ux * (ratio * length);
-  const baseY = start.y + uy * (ratio * length);
+  // Gunakan rasio firstDist dan secondDist untuk posisi dasar
+  const totalDist = firstDist + secondDist;
+  if (totalDist === 0) return []; // Hindari pembagian dengan nol
+  const ratio = firstDist / totalDist;
+  const distFromStart = ratio * lengthMeter;
 
-  // Vektor tegak lurus untuk sebaran
-  const perpX = -uy;
-  const perpY = ux;
+  const positions = [distFromStart];
 
   const points = [];
-  for (let i = 0; i < numPoints; i++) {
-    // Offset tegak lurus dengan sebaran kiri dan kanan
-    const offsetPerp = Math.random() * (spreadRight + spreadLeft) - spreadLeft; // -3 hingga +3 piksel
-    // Offset sepanjang garis (opsional)
-    const offsetAlong = (Math.random() * 2 - 1) * spreadAlong; // -5 hingga +5 piksel
+  for (const dist of positions) {
+    const baseX = start.x + ux * dist;
+    const baseY = start.y + uy * dist;
+
+    const perpX = -uy;
+    const perpY = ux;
+
+    // Penyebaran acak
+    const offsetPerp =
+      Math.random() * (spreadRight + spreadLeft) -
+      (spreadRight + spreadLeft) / 2;
+    const offsetAlong = Math.random() * spreadAlong - spreadAlong / 2;
+
     const x = Math.round(baseX + perpX * offsetPerp + ux * offsetAlong);
     const y = Math.round(baseY + perpY * offsetPerp + uy * offsetAlong);
+
     points.push({ x, y });
   }
 
@@ -201,11 +205,7 @@ function calculateDistanceInfo(start, end) {
   const deltaY = end.y - start.y;
 
   const jarakPixel = Math.hypot(deltaX, deltaY);
-  const gate1_x = start.x * scale;
-  const gate1_y = start.y * scale;
-  const gate2_x = end.x * scale;
-  const gate2_y = end.y * scale;
-  const jarakMeter = Math.hypot(gate2_x - gate1_x, gate2_y - gate1_y);
+  const jarakMeter = jarakPixel * scale;
 
   return {
     jarakPixel: +jarakPixel.toFixed(2),
@@ -216,7 +216,6 @@ function calculateDistanceInfo(start, end) {
 function generateSimulatedBeaconData() {
   const beaconId = "BC572905DB80";
 
-  // Kelompokkan data berdasarkan waktu dan tag (dmac)
   const timeGroups = {};
   beaconData.forEach((entry) => {
     const time = entry.time;
@@ -226,63 +225,59 @@ function generateSimulatedBeaconData() {
     timeGroups[time][dmac][entry.gmac] = parseFloat(entry.calc_dist);
   });
 
-  // Buat simulasi untuk setiap tag dan waktu
+  const gatewayPairs = [
+    ["282C02227F53", "282C02227FDD"],
+    ["282C02227FDD", "282C02227F1A"],
+    ["282C02227F1A", "282C02227F53"],
+  ];
+
   const simulations = [];
   Object.entries(timeGroups).forEach(([time, tags]) => {
     Object.entries(tags).forEach(([dmac, distances]) => {
-      const gatewayIds = Object.keys(distances);
-
-      // Kumpulkan semua pasangan gateway yang mungkin
-      const possiblePairs = [];
-      for (let i = 0; i < gatewayIds.length; i++) {
-        for (let j = i + 1; j < gatewayIds.length; j++) {
-          const readerA = gatewayIds[i];
-          const readerB = gatewayIds[j];
-          possiblePairs.push({
-            readerA,
-            readerB,
-            distA: distances[readerA],
-            distB: distances[readerB],
+      gatewayPairs.forEach(([firstReader, secondReader]) => {
+        if (distances[firstReader] && distances[secondReader]) {
+          simulations.push({
+            dmac,
+            firstReader,
+            secondReader,
+            firstDist: distances[firstReader],
+            secondDist: distances[secondReader],
+            time,
           });
         }
-      }
-
-      // Pilih satu pasangan gateway secara acak
-      if (possiblePairs.length > 0) {
-        const randomPair =
-          possiblePairs[Math.floor(Math.random() * possiblePairs.length)];
-        simulations.push({
-          dmac,
-          readerA: randomPair.readerA,
-          readerB: randomPair.readerB,
-          distA: randomPair.distA,
-          distB: randomPair.distB,
-          time,
-        });
-      }
+      });
     });
   });
 
-  return simulations.map(({ dmac, readerA, readerB, distA, distB, time }) => {
-    const start = gateways[readerA];
-    const end = gateways[readerB];
+  return simulations.map(
+    ({ dmac, firstReader, secondReader, firstDist, secondDist, time }) => {
+      const start = gateways[firstReader];
+      const end = gateways[secondReader];
 
-    const points = generateBeaconPointsBetweenReaders(start, end, distA, distB);
-    const { jarakPixel, jarakMeter } = calculateDistanceInfo(start, end);
+      const points = generateBeaconPointsBetweenReaders(
+        start,
+        end,
+        firstDist,
+        secondDist
+      );
+      const { jarakPixel, jarakMeter } = calculateDistanceInfo(start, end);
 
-    return {
-      beaconId: dmac,
-      pair: `${readerA}_${readerB}`,
-      from: readerA,
-      to: readerB,
-      distA,
-      distB,
-      jarakPixel,
-      jarakMeter,
-      points,
-      time,
-    };
-  });
+      return {
+        beaconId: dmac,
+        pair: `${firstReader}_${secondReader}`,
+        first: firstReader,
+        second: secondReader,
+        firstDist,
+        secondDist,
+        jarakPixel,
+        jarakMeter,
+        points,
+        firstReaderCoord: { id: firstReader, ...gateways[firstReader] },
+        secondReaderCoord: { id: secondReader, ...gateways[secondReader] },
+        time,
+      };
+    }
+  );
 }
 
 app.get("/api/beacons", (req, res) => {
