@@ -18,7 +18,6 @@ const scale = 1;
 const spreadLeft = 3;
 const spreadRight = 3;
 const spreadAlong = 3;
-const numPoints = 1;
 
 const beaconData = [
   {
@@ -32,7 +31,7 @@ const beaconData = [
     temp: "N",
     time: "2025-05-29 05:47:56,880",
     meter: "1,88005408984861",
-    calc_dist: "7,14420554142471",
+    calc_dist: (Math.random() * 10).toFixed(2).replace(".", ","),
     gmac: "282C02227F53",
     measure: -59,
   },
@@ -47,7 +46,7 @@ const beaconData = [
     temp: "N",
     time: "2025-05-29 05:47:56,880",
     meter: "2,000",
-    calc_dist: "7,6",
+    calc_dist: (Math.random() * 10).toFixed(2).replace(".", ","),
     gmac: "282C02227FDD",
     measure: -59,
   },
@@ -62,7 +61,7 @@ const beaconData = [
     temp: "N",
     time: "2025-05-29 05:47:56,880",
     meter: "2,200",
-    calc_dist: "8,36",
+    calc_dist: (Math.random() * 10).toFixed(2).replace(".", ","),
     gmac: "282C02227F1A",
     measure: -59,
   },
@@ -77,7 +76,7 @@ const beaconData = [
     temp: "N",
     time: "2025-05-29 05:48:05,580",
     meter: "2,09721437756176",
-    calc_dist: "7,96941463473468",
+    calc_dist: (Math.random() * 10).toFixed(2).replace(".", ","),
     gmac: "282C02227F53",
     measure: -59,
   },
@@ -92,7 +91,7 @@ const beaconData = [
     temp: "N",
     time: "2025-05-29 05:48:05,580",
     meter: "2,200",
-    calc_dist: "8,36",
+    calc_dist: (Math.random() * 10).toFixed(2).replace(".", ","),
     gmac: "282C02227FDD",
     measure: -59,
   },
@@ -107,7 +106,7 @@ const beaconData = [
     temp: "N",
     time: "2025-05-29 05:48:05,580",
     meter: "2,400",
-    calc_dist: "9,12",
+    calc_dist: (Math.random() * 10).toFixed(2).replace(".", ","),
     gmac: "282C02227F1A",
     measure: -59,
   },
@@ -122,7 +121,7 @@ const beaconData = [
     temp: "N",
     time: "2025-05-29 05:58:32,630",
     meter: "2,03661840475793",
-    calc_dist: "7,73914993808014",
+    calc_dist: (Math.random() * 10).toFixed(2).replace(".", ","),
     gmac: "282C02227F53",
     measure: -59,
   },
@@ -137,7 +136,7 @@ const beaconData = [
     temp: "N",
     time: "2025-05-29 05:58:32,630",
     meter: "2,150",
-    calc_dist: "8,17",
+    calc_dist: (Math.random() * 10).toFixed(2).replace(".", ","),
     gmac: "282C02227FDD",
     measure: -59,
   },
@@ -152,7 +151,7 @@ const beaconData = [
     temp: "N",
     time: "2025-05-29 05:58:32,630",
     meter: "2,350",
-    calc_dist: "8,93",
+    calc_dist: (Math.random() * 10).toFixed(2).replace(".", ","),
     gmac: "282C02227F1A",
     measure: -59,
   },
@@ -162,44 +161,40 @@ function generateBeaconPointsBetweenReaders(start, end, firstDist, secondDist) {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const length = Math.sqrt(dx * dx + dy * dy);
-  if (length === 0) return [];
+  if (length === 0) return null;
 
   const ux = dx / length;
   const uy = dy / length;
 
   const lengthMeter = length * scale;
 
-  // Gunakan rasio firstDist dan secondDist untuk posisi dasar
+
+  firstDist = Math.random() * 10;
+  secondDist = Math.random() * 10;
+  
   const totalDist = firstDist + secondDist;
-  if (totalDist === 0) return []; // Hindari pembagian dengan nol
+
+  if (totalDist === 0) return null;
   const ratio = firstDist / totalDist;
   const distFromStart = ratio * lengthMeter;
 
-  const positions = [distFromStart];
+  const baseX = start.x + ux * distFromStart;
+  const baseY = start.y + uy * distFromStart;
 
-  const points = [];
-  for (const dist of positions) {
-    const baseX = start.x + ux * dist;
-    const baseY = start.y + uy * dist;
+  const perpX = -uy;
+  const perpY = ux;
 
-    const perpX = -uy;
-    const perpY = ux;
 
-    // Penyebaran acak
-    const offsetPerp =
-      Math.random() * (spreadRight + spreadLeft) -
-      (spreadRight + spreadLeft) / 2;
-    const offsetAlong = Math.random() * spreadAlong - spreadAlong / 2;
+  const offsetPerp =
+    Math.random() * (spreadRight + spreadLeft) - (spreadRight + spreadLeft) / 2;
+  const offsetAlong = Math.random() * spreadAlong - spreadAlong / 2;
 
-    const x = Math.round(baseX + perpX * offsetPerp + ux * offsetAlong);
-    const y = Math.round(baseY + perpY * offsetPerp + uy * offsetAlong);
+  const x = Math.round(baseX + perpX * offsetPerp + ux * offsetAlong);
+  const y = Math.round(baseY + perpY * offsetPerp + uy * offsetAlong);
 
-    points.push({ x, y });
-  }
+  return { x, y };
 
-  return points;
 }
-
 function calculateDistanceInfo(start, end) {
   const deltaX = end.x - start.x;
   const deltaY = end.y - start.y;
@@ -254,7 +249,7 @@ function generateSimulatedBeaconData() {
       const start = gateways[firstReader];
       const end = gateways[secondReader];
 
-      const points = generateBeaconPointsBetweenReaders(
+      const point = generateBeaconPointsBetweenReaders(
         start,
         end,
         firstDist,
@@ -271,7 +266,7 @@ function generateSimulatedBeaconData() {
         secondDist,
         jarakPixel,
         jarakMeter,
-        points,
+        point,
         firstReaderCoord: { id: firstReader, ...gateways[firstReader] },
         secondReaderCoord: { id: secondReader, ...gateways[secondReader] },
         time,
