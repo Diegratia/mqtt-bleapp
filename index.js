@@ -5,6 +5,7 @@ const { startMqttClient } = require("./mqtt");
 const sql = require("mssql");
 const path = require("path");
 const minimist = require("minimist");
+const { setupRealtimeStream, generateBeaconPositions } = require("./realtime");
 
 const app = express();
 const port = 3000;
@@ -14,6 +15,9 @@ const testTableName = args.t;
 
 app.use(cors({ origin: "*" }));
 app.use(express.static(path.join(__dirname, "public")));
+
+// Inisialisasi stream real-time
+setupRealtimeStream();
 
 async function saveToDatabase(obj) {
   if (!obj.dmac) {
@@ -69,90 +73,9 @@ async function saveToDatabase(obj) {
       `);
 }
 
-app.get("/beacons-data", async (req, res) => {
-  try {
-    const { db, testTable } = getDbPool();
-    const tableName = testTable || "beacons";
-
-    const result = await db.request().query(`
-      SELECT g.gmac, b.dmac, b.type, b.vbatt, b.temp, b.rssi, b.refpower
-      FROM ${tableName} b
-      JOIN gateways g ON b.gateway_id = g.id
-      ORDER BY g.gmac, b.dmac, b.type;
-    `);
-
-    const rows = result.recordset;
-    const groupedByGmac = {};
-    const finalResult = [];
-
-    rows.forEach((row) => {
-      const { gmac, dmac, type, vbatt, temp, rssi, refpower } = row;
-
-      if (!groupedByGmac[gmac]) {
-        groupedByGmac[gmac] = {
-          gmac: gmac,
-          beacons: {},
-        };
-        finalResult.push(groupedByGmac[gmac]);
-      }
-
-      if (!groupedByGmac[gmac].beacons[dmac]) {
-        groupedByGmac[gmac].beacons[dmac] = {
-          type1: [],
-          type4: [],
-        };
-      }
-
-      if (type === 1) {
-        groupedByGmac[gmac].beacons[dmac].type1.push({ vbatt, temp });
-      } else if (type === 4) {
-        groupedByGmac[gmac].beacons[dmac].type4.push({ rssi, refpower });
-      }
-    });
-
-    res.json({
-      message: `Data berhasil diambil dari ${tableName}`,
-      data: finalResult,
-    });
-  } catch (error) {
-    console.error("Error fetching beacons data:", error.message);
-    res.status(500).json({
-      message: "Gagal ambil data",
-      error: error.message,
-    });
-  }
-});
-
-app.get("/rssi-chart-data", async (req, res) => {
-  try {
-    const { db, testTable } = getDbPool();
-    const tableName = testTable || "beacons";
-
-    const result = await db.request().query(`
-      SELECT g.gmac, b.dmac, b.rssi
-      FROM ${tableName} b
-      JOIN gateways g ON b.gateway_id = g.id
-      WHERE b.rssi IS NOT NULL
-      ORDER BY g.gmac, b.dmac, b.id;
-    `);
-
-    const data = result.recordset.map((row) => ({
-      gmac: row.gmac,
-      dmac: row.dmac,
-      rssi: row.rssi,
-    }));
-
-    res.json({
-      message: `RSSI data per beacon fetched from ${tableName}`,
-      data: data,
-    });
-  } catch (error) {
-    console.error("Error get chart data:", error.message);
-    res.status(500).json({
-      message: "Fetch failed",
-      error: error.message,
-    });
-  }
+app.get("/api/beacons", (req, res) => {
+  const beaconPositions = generateBeaconPositions();
+  res.json(beaconPositions);
 });
 
 app.get("/", (req, res) => {
@@ -172,3 +95,89 @@ async function startServer() {
 }
 
 startServer();
+
+// app.get("/beacons-data", async (req, res) => {
+//   try {
+//     const { db, testTable } = getDbPool();
+//     const tableName = testTable || "beacons";
+
+//     const result = await db.request().query(`
+//       SELECT g.gmac, b.dmac, b.type, b.vbatt, b.temp, b.rssi, b.refpower
+//       FROM ${tableName} b
+//       JOIN gateways g ON b.gateway_id = g.id
+//       ORDER BY g.gmac, b.dmac, b.type;
+//     `);
+
+//     const rows = result.recordset;
+//     const groupedByGmac = {};
+//     const finalResult = [];
+
+//     rows.forEach((row) => {
+//       const { gmac, dmac, type, vbatt, temp, rssi, refpower } = row;
+
+//       if (!groupedByGmac[gmac]) {
+//         groupedByGmac[gmac] = {
+//           gmac: gmac,
+//           beacons: {},
+//         };
+//         finalResult.push(groupedByGmac[gmac]);
+//       }
+
+//       if (!groupedByGmac[gmac].beacons[dmac]) {
+//         groupedByGmac[gmac].beacons[dmac] = {
+//           type1: [],
+//           type4: [],
+//         };
+//       }
+
+//       if (type === 1) {
+//         groupedByGmac[gmac].beacons[dmac].type1.push({ vbatt, temp });
+//       } else if (type === 4) {
+//         groupedByGmac[gmac].beacons[dmac].type4.push({ rssi, refpower });
+//       }
+//     });
+
+//     res.json({
+//       message: `Data berhasil diambil dari ${tableName}`,
+//       data: finalResult,
+//     });
+//   } catch (error) {
+//     console.error("Error fetching beacons data:", error.message);
+//     res.status(500).json({
+//       message: "Gagal ambil data",
+//       error: error.message,
+//     });
+//   }
+// });
+
+// app.get("/rssi-chart-data", async (req, res) => {
+//   try {
+//     const { db, testTable } = getDbPool();
+//     const tableName = testTable || "beacons";
+
+//     const result = await db.request().query(`
+//       SELECT g.gmac, b.dmac, b.rssi
+//       FROM ${tableName} b
+//       JOIN gateways g ON b.gateway_id = g.id
+//       WHERE b.rssi IS NOT NULL
+//       ORDER BY g.gmac, b.dmac, b.id;
+//     `);
+
+//     const data = result.recordset.map((row) => ({
+//       gmac: row.gmac,
+//       dmac: row.dmac,
+//       rssi: row.rssi,
+//     }));
+
+//     res.json({
+//       message: `RSSI data per beacon fetched from ${tableName}`,
+//       data: data,
+//     });
+//   } catch (error) {
+//     console.error("Error get chart data:", error.message);
+//     res.status(500).json({
+//       message: "Fetch failed",
+//       error: error.message,
+//     });
+//   }
+// });
