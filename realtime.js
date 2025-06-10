@@ -2,7 +2,7 @@ const { startMqttClient } = require("./mqtt");
 
 // Struktur untuk menyimpan data beacon real-time
 let realtimeBeaconPairs = new Map();
-const timeTolerance = 300000;
+const timeTolerance = 300000; // Toleransi waktu 5 menit (300000 ms)
 let client;
 
 const scale = 1;
@@ -18,9 +18,8 @@ const gateways = {
 
 function setupRealtimeStream() {
   client = startMqttClient((beacon) => {
-    const { dmac, gmac, calc_dist: calcDistStr, time: timeStr } = beacon;
-    const timestamp = timeStr;
-    const calcDist = calcDistStr; // konversi float
+    const { dmac, gmac, calc_dist: calcDist, time: timeStr } = beacon;
+    const timestamp = new Date(timeStr.replace(",", ".")).getTime(); // Konversi string waktu ke timestamp
 
     // Bersihkan data lama
     for (let [dmacKey, timestamps] of realtimeBeaconPairs) {
@@ -47,7 +46,7 @@ function setupRealtimeStream() {
 
     if (!closestTime) closestTime = timestamp;
     if (!dmacData.has(closestTime)) dmacData.set(closestTime, {});
-    dmacData.get(closestTime)[gmac] = calcDist;
+    dmacData.get(closestTime)[gmac] = calcDist; // Gunakan calcDist langsung sebagai float
   });
 }
 
@@ -70,9 +69,6 @@ function generateBeaconPointsBetweenReaders(start, end, firstDist, secondDist) {
   const baseY = start.y + uy * distFromStart;
   const perpX = -uy;
   const perpY = ux;
-
-  // const offsetPerp = Math.random() * (3 + 3) - (3 + 3) / 2; // spreadLeft + spreadRight
-  // const offsetAlong = Math.random() * 3 - 3 / 2; // spreadAlong
 
   const offsetPerp =
     Math.random() * (spreadRight + spreadLeft) - (spreadRight + spreadLeft) / 2;
