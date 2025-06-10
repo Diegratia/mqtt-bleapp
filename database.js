@@ -7,9 +7,11 @@ const globalpooldb = {
 
 const dbConfig = {
   user: "sa",
-  password: "Password_123#",
-  server: "192.168.1.116",
-  database: "mqttble_app",
+  password: "P@ssw0rd",
+  // server: "10.0.74.189",
+  // database: "test_gresik",
+  server: "103.193.15.120",
+  database: "testingble_gresik",
   options: {
     encrypt: false,
     trustServerCertificate: true,
@@ -29,9 +31,9 @@ async function initializeDatabase(testTableName = null) {
     });
 
     await pool.request()
-      .query(`IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'mqttble_app')
+      .query(`IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'testingble_gresikz')
       BEGIN
-        CREATE DATABASE mqttble_app;
+        CREATE DATABASE testingble_gresikz;
       END
     `);
 

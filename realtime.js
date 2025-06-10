@@ -2,20 +2,25 @@ const { startMqttClient } = require("./mqtt");
 
 // Struktur untuk menyimpan data beacon real-time
 let realtimeBeaconPairs = new Map();
-const timeTolerance = 5000; // Toleransi waktu 5 detik (dalam milidetik)
+const timeTolerance = 300000;
 let client;
 
+const scale = 1;
+const spreadLeft = 3;
+const spreadRight = 3;
+const spreadAlong = 3;
+
 const gateways = {
-  "282C02227F53": { x: 50, y: 150 },
-  "282C02227FDD": { x: 20, y: 100 },
-  "282C02227F1A": { x: 40, y: 120 },
+  "4CA38F691898": { x: 50, y: 150 },
+  "4CA38F691FBC": { x: 20, y: 100 },
+  "4CA38F6918C4": { x: 40, y: 120 },
 };
 
 function setupRealtimeStream() {
   client = startMqttClient((beacon) => {
     const { dmac, gmac, calc_dist: calcDistStr, time: timeStr } = beacon;
-    const timestamp = new Date(timeStr.replace(",", ".")).getTime(); // Ganti koma dengan titik untuk parsing Date
-    const calcDist = parseFloat(calcDistStr.replace(",", ".")); // Ganti koma dengan titik untuk konversi float
+    const timestamp = timeStr;
+    const calcDist = calcDistStr; // konversi float
 
     // Bersihkan data lama
     for (let [dmacKey, timestamps] of realtimeBeaconPairs) {
@@ -54,7 +59,7 @@ function generateBeaconPointsBetweenReaders(start, end, firstDist, secondDist) {
 
   const ux = dx / length;
   const uy = dy / length;
-  const lengthMeter = length * 1; // Skala default
+  const lengthMeter = length * scale;
 
   const totalDist = firstDist + secondDist;
   if (totalDist === 0) return null;
@@ -66,8 +71,12 @@ function generateBeaconPointsBetweenReaders(start, end, firstDist, secondDist) {
   const perpX = -uy;
   const perpY = ux;
 
-  const offsetPerp = Math.random() * (3 + 3) - (3 + 3) / 2; // spreadLeft + spreadRight
-  const offsetAlong = Math.random() * 3 - 3 / 2; // spreadAlong
+  // const offsetPerp = Math.random() * (3 + 3) - (3 + 3) / 2; // spreadLeft + spreadRight
+  // const offsetAlong = Math.random() * 3 - 3 / 2; // spreadAlong
+
+  const offsetPerp =
+    Math.random() * (spreadRight + spreadLeft) - (spreadRight + spreadLeft) / 2;
+  const offsetAlong = Math.random() * spreadAlong - spreadAlong / 2;
 
   const x = Math.round(baseX + perpX * offsetPerp + ux * offsetAlong);
   const y = Math.round(baseY + perpY * offsetPerp + uy * offsetAlong);
@@ -79,7 +88,7 @@ function calculateDistanceInfo(start, end) {
   const deltaX = end.x - start.x;
   const deltaY = end.y - start.y;
   const jarakPixel = Math.hypot(deltaX, deltaY);
-  const jarakMeter = jarakPixel * 1; // Skala default
+  const jarakMeter = jarakPixel * scale;
 
   return {
     jarakPixel: +jarakPixel.toFixed(2),
@@ -90,9 +99,9 @@ function calculateDistanceInfo(start, end) {
 function generateBeaconPositions() {
   const pairs = [];
   const gatewayPairs = [
-    ["282C02227F53", "282C02227FDD"],
-    ["282C02227FDD", "282C02227F1A"],
-    ["282C02227F1A", "282C02227F53"],
+    ["4CA38F691898", "4CA38F691FBC"],
+    ["4CA38F691FBC", "4CA38F6918C4"],
+    ["4CA38F6918C4", "4CA38F691898"],
   ];
 
   for (let [dmac, timestamps] of realtimeBeaconPairs) {

@@ -36,7 +36,7 @@ async function saveToDatabase(obj) {
 
   const tableName = testTable ?? "beacons";
 
-  // console.log(`save ke ${tableName}:`, obj);
+  console.log(`save ke ${tableName}:`, obj);
 
   await db
     .request()
