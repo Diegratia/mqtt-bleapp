@@ -1,7 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const app = express();
-const port = 3000;
+const port = 3030;
 
 app.use(cors({ origin: "*" }));
 app.use(express.json());
@@ -168,10 +168,9 @@ function generateBeaconPointsBetweenReaders(start, end, firstDist, secondDist) {
 
   const lengthMeter = length * scale;
 
-
   firstDist = Math.random() * 10;
   secondDist = Math.random() * 10;
-  
+
   const totalDist = firstDist + secondDist;
 
   if (totalDist === 0) return null;
@@ -184,7 +183,6 @@ function generateBeaconPointsBetweenReaders(start, end, firstDist, secondDist) {
   const perpX = -uy;
   const perpY = ux;
 
-
   const offsetPerp =
     Math.random() * (spreadRight + spreadLeft) - (spreadRight + spreadLeft) / 2;
   const offsetAlong = Math.random() * spreadAlong - spreadAlong / 2;
@@ -193,7 +191,6 @@ function generateBeaconPointsBetweenReaders(start, end, firstDist, secondDist) {
   const y = Math.round(baseY + perpY * offsetPerp + uy * offsetAlong);
 
   return { x, y };
-
 }
 function calculateDistanceInfo(start, end) {
   const deltaX = end.x - start.x;
@@ -283,3 +280,4 @@ app.get("/api/beacons", (req, res) => {
 app.listen(port, () => {
   console.log(`📡 Beacon Distance Simulator ready → http://localhost:${port}`);
 });
+

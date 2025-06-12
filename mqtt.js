@@ -385,7 +385,7 @@ var mqtt = require("mqtt");
 const { KalmanFilter } = require("kalman-filter");
 // var Topic = "test/demo";
 var Topic = "test/topic";
-var Broker_URL = "mqtt://localhost:1885";
+var Broker_URL = "mqtt://localhost:1884";
 var scale = 3.8;
 
 var options = {
@@ -393,8 +393,8 @@ var options = {
   // username: "ZSnHSIqUpL",
   // password: "z8YlpKB0UX",
   clientId: "KlienGweh",
-  username: "admin",
-  password: "aimer",
+  username: "test1",
+  password: "test1",
 };
 
 function startMqttClient(messageCallback) {
@@ -434,7 +434,16 @@ function startMqttClient(messageCallback) {
           if (beacon.type == 32) {
             return;
           }
-
+          // if (gatewayId !== "4CA38F6918C4" && gatewayId !== "4CA38F691FBC") {
+          //   return;
+          // }
+          if (
+            beacon.dmac !== "BC572905DB80" &&
+            beacon.dmac !== "BC572905DB75" &&
+            beacon.dmac !== "BC572905D5B3"
+          ) {
+            return;
+          }
           {
             // beacon.gmac =
             // console.log(beacon);
@@ -464,10 +473,10 @@ function startMqttClient(messageCallback) {
   return client;
 }
 
-console.log(calculateDistance(-100, -59, 2, 10), "-59");
-console.log(calculateDistance(-100, -51, 2, 10), "-51");
-console.log(calculateDistance(-100, -75, 2, 10), "-75");
-console.log(calculateDistance(-100, -85, 2, 10), "-85");
+// console.log(calculateDistance(-100, -59, 2, 10), "-59");
+// console.log(calculateDistance(-100, -51, 2, 10), "-51");
+// console.log(calculateDistance(-100, -75, 2, 10), "-75");
+// console.log(calculateDistance(-100, -85, 2, 10), "-85");
 
 /*************  ✨ Windsurf Command ⭐  *************/
 /**

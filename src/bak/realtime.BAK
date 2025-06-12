@@ -3,7 +3,7 @@ const { startMqttClient } = require("./mqtt");
 const { fetchDynamicData } = require("./database");
 
 let realtimeBeaconPairs = new Map();
-const timeTolerance = 10000;
+const timeTolerance = 1000; // 1 detik
 let client;
 
 async function initializeRealtimeData(floorplanId) {
@@ -24,11 +24,9 @@ function setupRealtimeStream(floorplanId) {
   if (!client) {
     client = startMqttClient((beacon) => {
       console.log("Received MQTT beacon:", beacon);
-      const { dmac, gmac, calcDist: calcDistStr, time: timeStr } = beacon;
-      const calc_dist = parseFloat(calcDistStr);
+      const { dmac, gmac, calc_dist: calcDist, time: timeStr } = beacon;
       const timestamp = new Date(timeStr.replace(",", ".")).getTime();
 
-      // Bersihkan data lama
       for (let [dmacKey, timestamps] of realtimeBeaconPairs) {
         for (let [t, distances] of timestamps) {
           if (timestamp - t > timeTolerance) timestamps.delete(t);
@@ -52,7 +50,7 @@ function setupRealtimeStream(floorplanId) {
 
       if (!closestTime) closestTime = timestamp;
       if (!dmacData.has(closestTime)) dmacData.set(closestTime, {});
-      dmacData.get(closestTime)[gmac] = calc_dist;
+      dmacData.get(closestTime)[gmac] = calcDist;
 
       console.log("Updated realtimeBeaconPairs:", [...realtimeBeaconPairs]);
     });
@@ -85,9 +83,9 @@ function generateBeaconPointsBetweenReaders(
   const perpX = -uy;
   const perpY = ux;
 
-  const spreadLeft = 1;
-  const spreadRight = 1;
-  const spreadAlong = 1;
+  const spreadLeft = 3;
+  const spreadRight = 3;
+  const spreadAlong = 3;
   const offsetPerp =
     Math.random() * (spreadRight + spreadLeft) - (spreadRight + spreadLeft) / 2;
   const offsetAlong = Math.random() * spreadAlong - spreadAlong / 2;
@@ -98,17 +96,17 @@ function generateBeaconPointsBetweenReaders(
   return { x, y };
 }
 
-// function calculateDistanceInfo(start, end, scale) {
-//   const deltaX = end.x - start.x;
-//   const deltaY = end.y - start.y;
-//   const jarakPixel = Math.hypot(deltaX, deltaY);
-//   const jarakMeter = jarakPixel * scale;
+function calculateDistanceInfo(start, end, scale) {
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  const jarakPixel = Math.hypot(deltaX, deltaY);
+  const jarakMeter = jarakPixel * scale;
 
-//   return {
-//     jarakPixel: +jarakPixel.toFixed(2),
-//     jarakMeter: +jarakMeter.toFixed(2),
-//   };
-// }
+  return {
+    jarakPixel: +jarakPixel.toFixed(2),
+    jarakMeter: +jarakMeter.toFixed(2),
+  };
+}
 
 function generateBeaconPositions(floorplanId, gateways, scale) {
   console.log("Generating beacon positions with:", {
@@ -119,63 +117,64 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
   });
 
   const pairs = [];
+  const gatewayPairs = [
+    ...Array.from(gateways.keys()).flatMap((g1, i) =>
+      Array.from(gateways.keys())
+        .slice(i + 1)
+        .map((g2) => [g1, g2])
+    ),
+  ];
+  console.log("Gateway pairs:", gatewayPairs);
 
   for (let [dmac, timestamps] of realtimeBeaconPairs) {
     for (let [time, distances] of timestamps) {
       console.log(`Processing beacon ${dmac} at time ${time}:`, distances);
-      // Dapatkan semua reader dengan jarak
-      const readerDistances = Array.from(gateways.keys())
-        .map((gmac) => ({
-          gmac,
-          distance: distances[gmac] !== undefined ? distances[gmac] : Infinity,
-        }))
-        .sort((a, b) => a.distance - b.distance); // Urutkan berdasarkan jarak terdekat
+      gatewayPairs.forEach(([firstReader, secondReader]) => {
+        if (distances[firstReader] && distances[secondReader]) {
+          console.log(`Found pair: ${firstReader}, ${secondReader}`);
+          const start = gateways.get(firstReader);
+          const end = gateways.get(secondReader);
+          const point = generateBeaconPointsBetweenReaders(
+            start,
+            end,
+            distances[firstReader],
+            distances[secondReader],
+            scale
+          );
+          const { jarakPixel, jarakMeter } = calculateDistanceInfo(
+            start,
+            end,
+            scale
+          );
 
-      console.log(`Sorted reader distances for ${dmac}:`, readerDistances);
-
-      // Ambil dua reader terdekat dengan jarak valid
-      const validReaders = readerDistances.filter(
-        (r) => r.distance !== Infinity
-      );
-      if (validReaders.length >= 2) {
-        const firstReader = validReaders[0].gmac;
-        const secondReader = validReaders[1].gmac;
-        const firstDist = validReaders[0].distance;
-        const secondDist = validReaders[1].distance;
-
-        console.log(`Pairing closest readers: ${firstReader}, ${secondReader}`);
-
-        const start = gateways.get(firstReader);
-        const end = gateways.get(secondReader);
-        const point = generateBeaconPointsBetweenReaders(
-          start,
-          end,
-          firstDist,
-          secondDist,
-          scale
-        );
-        // const { jarakPixel, jarakMeter } = calculateDistanceInfo(
-        //   start,
-        //   end,
-        //   scale
-        // );
-
-        pairs.push({
-          beaconId: dmac,
-          pair: `${firstReader}_${secondReader}`,
-          first: firstReader,
-          second: secondReader,
-          firstDist: firstDist,
-          secondDist: secondDist,
-          // jarakPixel,
-          // jarakMeter,
-          point,
-          firstReaderCoord: { id: firstReader, ...start },
-          secondReaderCoord: { id: secondReader, ...end },
-          time: new Date(time).toISOString(),
-          floorplanId,
-        });
-      }
+          pairs.push({
+            beaconId: dmac,
+            pair: `${firstReader}_${secondReader}`,
+            first: firstReader,
+            second: secondReader,
+            firstDist: distances[firstReader],
+            secondDist: distances[secondReader],
+            jarakPixel,
+            jarakMeter,
+            point,
+            firstReaderCoord: { id: firstReader, ...start },
+            secondReaderCoord: { id: secondReader, ...end },
+            time: new Date(time).toISOString(),
+            floorplanId,
+          });
+        } else {
+          if (distances[firstReader]) {
+            console.log(
+              `Only first reader ${firstReader} for ${dmac}: ${distances[firstReader]}`
+            );
+          }
+          if (distances[secondReader]) {
+            console.log(
+              `Only second reader ${secondReader} for ${dmac}: ${distances[secondReader]}`
+            );
+          }
+        }
+      });
     }
   }
 

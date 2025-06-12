@@ -1,0 +1,201 @@
+const { startMqttClient } = require("./mqtt");
+const { getDbPool } = require("./database");
+const sql = require("mssql");
+
+// Struktur untuk menyimpan data beacon real-time
+let realtimeBeaconPairs = new Map();
+const timeTolerance = 5000; // Toleransi waktu 5 detik
+let client;
+
+const scale = 1;
+const spreadLeft = 15;
+const spreadRight = 15;
+const spreadAlong = 15;
+
+const gateways = {
+  "4CA38F691898": { x: 50, y: 150 },
+  "4CA38F691FBC": { x: 800, y: 50 },
+  "4CA38F6918C4": { x: 560, y: 450 },
+};
+
+function setupRealtimeStream() {
+  client = startMqttClient((beacon) => {
+    const { dmac, gmac, calcDist: calcDistStr, time: timeStr } = beacon;
+    const timestamp = new Date(timeStr).getTime(); // Konversi ke timestamp (ms)
+
+    // Bersihkan data lama
+    for (let [dmacKey, timestamps] of realtimeBeaconPairs) {
+      for (let [t, distances] of timestamps) {
+        if (timestamp - t > timeTolerance) timestamps.delete(t);
+      }
+      if (timestamps.size === 0) realtimeBeaconPairs.delete(dmacKey);
+    }
+
+    // Tambahkan data baru
+    if (!realtimeBeaconPairs.has(dmac))
+      realtimeBeaconPairs.set(dmac, new Map());
+    const dmacData = realtimeBeaconPairs.get(dmac);
+
+    let closestTime = null;
+    let minDiff = Infinity;
+    for (let [t, distances] of dmacData) {
+      const diff = Math.abs(timestamp - t);
+      if (diff < minDiff && diff <= timeTolerance) {
+        minDiff = diff;
+        closestTime = t;
+      }
+    }
+
+    if (!closestTime) closestTime = timestamp;
+    if (!dmacData.has(closestTime)) dmacData.set(closestTime, {});
+    dmacData.get(closestTime)[gmac] = parseFloat(calcDistStr); // Konversi ke float
+    console.log(
+      `Processed beacon: ${dmac}, ${gmac}, ${calcDistStr} at ${timeStr}`
+    ); // Debug
+  });
+}
+
+function generateBeaconPointsBetweenReaders(start, end, firstDist, secondDist) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.sqrt(dx * dx + dy * dy);
+  if (length === 0) return null;
+
+  const ux = dx / length;
+  const uy = dy / length;
+  const lengthMeter = length * scale;
+
+  const totalDist = firstDist + secondDist;
+  if (totalDist === 0) return null;
+  const ratio = firstDist / totalDist;
+  const distFromStart = ratio * lengthMeter;
+
+  const baseX = start.x + ux * distFromStart;
+  const baseY = start.y + uy * distFromStart;
+  const perpX = -uy;
+  const perpY = ux;
+
+  const offsetPerp =
+    Math.random() * (spreadRight + spreadLeft) - (spreadRight + spreadLeft) / 2;
+  const offsetAlong = Math.random() * spreadAlong - spreadAlong / 2;
+
+  const x = Math.round(baseX + perpX * offsetPerp + ux * offsetAlong);
+  const y = Math.round(baseY + perpY * offsetPerp + uy * offsetAlong);
+
+  return { x, y };
+}
+
+function calculateDistanceInfo(start, end) {
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  const jarakPixel = Math.hypot(deltaX, deltaY);
+  const jarakMeter = jarakPixel * scale;
+
+  return {
+    jarakPixel: +jarakPixel.toFixed(2),
+    jarakMeter: +jarakMeter.toFixed(2),
+  };
+}
+
+async function generateBeaconPositions() {
+  const pairs = [];
+  const { db } = getDbPool();
+
+  for (let [dmac, timestamps] of realtimeBeaconPairs) {
+    for (let [time, distances] of timestamps) {
+      // Cari 2 gateway terdekat untuk setiap beacon
+      const gatewayDistances = Object.entries(distances).map(
+        ([gmac, dist]) => ({
+          gmac,
+          dist: parseFloat(dist), // Pastikan dist adalah float
+        })
+      );
+
+      // Sort berdasarkan jarak terdekat
+      gatewayDistances.sort((a, b) => a.dist - b.dist);
+
+      // Ambil 2 gateway terdekat
+      if (gatewayDistances.length >= 2) {
+        const firstReader = gatewayDistances[0].gmac;
+        const secondReader = gatewayDistances[1].gmac;
+
+        const start = gateways[firstReader];
+        const end = gateways[secondReader];
+        const point = generateBeaconPointsBetweenReaders(
+          start,
+          end,
+          distances[firstReader],
+          distances[secondReader]
+        );
+        const { jarakPixel, jarakMeter } = calculateDistanceInfo(start, end);
+
+        const positionData = {
+          beaconId: dmac,
+          pair: `${firstReader}_${secondReader}`,
+          first: firstReader,
+          second: secondReader,
+          firstDist: distances[firstReader],
+          secondDist: distances[secondReader],
+          jarakPixel,
+          jarakMeter,
+          point,
+          firstReaderCoord: { id: firstReader, ...gateways[firstReader] },
+          secondReaderCoord: { id: secondReader, ...gateways[secondReader] },
+          time: new Date(time).toISOString(),
+        };
+
+        pairs.push(positionData);
+
+        // Simpan ke database
+        try {
+          await db
+            .request()
+            .input("beacon_id", sql.VarChar(12), positionData.beaconId)
+            .input("pair", sql.VarChar(50), positionData.pair)
+            .input("first", sql.VarChar(12), positionData.first)
+            .input("second", sql.VarChar(12), positionData.second)
+            .input("first_dist", sql.Float, positionData.firstDist)
+            .input("second_dist", sql.Float, positionData.secondDist)
+            .input("jarak_pixel", sql.Float, positionData.jarakPixel)
+            .input("jarak_meter", sql.Float, positionData.jarakMeter)
+            .input(
+              "point_x",
+              sql.Int,
+              positionData.point ? positionData.point.x : null
+            )
+            .input(
+              "point_y",
+              sql.Int,
+              positionData.point ? positionData.point.y : null
+            )
+            .input("time", sql.DateTime, new Date(positionData.time)).query(`
+              INSERT INTO BeaconPositions (
+                beacon_id, pair, first, second, first_dist, second_dist, jarak_pixel, jarak_meter, point_x, point_y, time
+              ) VALUES (
+                @beacon_id, @pair, @first, @second, @first_dist, @second_dist, @jarak_pixel, @jarak_meter, @point_x, @point_y, @time
+              )
+            `);
+          console.log(
+            `Saved to BeaconPositions: ${JSON.stringify(positionData)}`
+          );
+        } catch (err) {
+          console.error("Error saving to database:", err);
+        }
+      } else {
+        console.log(
+          `Not enough gateways for ${dmac} at ${time}: ${JSON.stringify(
+            distances
+          )}`
+        ); // Debug
+      }
+    }
+  }
+
+  console.log("Generated pairs:", pairs); // Debug
+  return pairs;
+}
+
+module.exports = {
+  setupRealtimeStream,
+  generateBeaconPositions,
+};
