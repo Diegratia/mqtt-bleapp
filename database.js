@@ -8,7 +8,7 @@ const globalpooldb = {
 const dbConfig = {
   user: "sa",
   password: "Password_123#",
-  server: "192.168.1.8",
+  server: "192.168.1.116",
   database: "BleTrackingDbDev",
   options: {
     encrypt: false,
@@ -126,9 +126,9 @@ async function fetchAllFloorplans() {
       JOIN mst_floorplan fp ON fma.floor_id = fp.floor_id
       WHERE fma.status != 0 AND fp.status != 0
     `);
-    console.log(
-      `Fetched ${floorplanResult.recordset.length} floorplans, ${gatewayResult.recordset.length} gateways, ${maskedAreaResult.recordset.length} masked areas`
-    );
+    // console.log(
+    //   `Fetched ${floorplanResult.recordset.length} floorplans, ${gatewayResult.recordset.length} gateways, ${maskedAreaResult.recordset.length} masked areas`
+    // );
     return {
       floorplans: floorplanResult.recordset,
       gateways: gatewayResult.recordset,

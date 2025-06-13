@@ -379,13 +379,13 @@
 // module.exports = { startMqttClient };//
 //
 
-module.exports = { startMqttClient };
+// module.exports = { startMqttClient };
 var measure = -59;
 var mqtt = require("mqtt");
 const { KalmanFilter } = require("kalman-filter");
 // var Topic = "test/demo";
 var Topic = "test/topic";
-var Broker_URL = "mqtt://localhost:1885";
+var Broker_URL = "mqtt://localhost:1884";
 var scale = 3.8;
 
 var options = {
@@ -393,8 +393,8 @@ var options = {
   // username: "ZSnHSIqUpL",
   // password: "z8YlpKB0UX",
   clientId: "KlienGweh",
-  username: "admin",
-  password: "aimer",
+  username: "test1",
+  password: "test1",
 };
 
 function startMqttClient(messageCallback) {
@@ -408,7 +408,6 @@ function startMqttClient(messageCallback) {
   }
 
   function mqtt_subscribe(err, granted) {
-    // console.log("Subscribed to " + Topic);
     if (err) {
       console.log(err);
     }
@@ -437,13 +436,13 @@ function startMqttClient(messageCallback) {
           // if (gatewayId !== "4CA38F6918C4" && gatewayId !== "4CA38F691FBC") {
           //   return;
           // }
-          // if (
-          //   beacon.dmac !== "BC572905DB80" &&
-          //   beacon.dmac !== "BC572905DB75" &&
-          //   beacon.dmac !== "BC572905D5B3"
-          // ) {
-          //   return;
-          // }
+          if (
+            beacon.dmac !== "BC572905DB80" &&
+            beacon.dmac !== "BC572905DB75" &&
+            beacon.dmac !== "BC572905D5B3"
+          ) {
+            return;
+          }
           {
             // beacon.gmac =
             // console.log(beacon);

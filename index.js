@@ -30,6 +30,7 @@ async function startServer() {
   try {
     await initializeDatabase(testTableName);
     await initializeAllFloorplans();
+
     setupRealtimeStream();
     app.listen(port, () => {
       console.log(`running at http://localhost:${port}`);

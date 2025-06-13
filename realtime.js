@@ -2,10 +2,11 @@ const { startMqttClient } = require("./mqtt");
 const { fetchAllFloorplans } = require("./database");
 
 let realtimeBeaconPairs = new Map(); // floorplanId -> Map(dmac -> Map(timestamp -> distances))
-const timeTolerance = 10000; // 10 detik
+const timeTolerance = 3000;
 let client;
 const floorplans = new Map(); // floorplanId -> { name, scale, gateways: Map(gmac -> { x, y }), maskedAreas: [] }
 const gmacToFloorplan = new Map(); // gmac -> floorplanId
+let interval;
 
 async function initializeAllFloorplans() {
   try {
@@ -27,12 +28,7 @@ async function initializeAllFloorplans() {
     }
 
     for (const { floorplan_id, gmac, pos_px_x, pos_px_y } of gateways) {
-      if (
-        floorplans.has(floorplan_id) &&
-        gmac &&
-        pos_px_x != null &&
-        pos_px_y != null
-      ) {
+      if (floorplans.has(floorplan_id)) {
         floorplans
           .get(floorplan_id)
           .gateways.set(gmac, { x: Number(pos_px_x), y: Number(pos_px_y) });
@@ -52,18 +48,9 @@ async function initializeAllFloorplans() {
       }
     }
 
-    console.log("Initialized floorplans:", {
-      floorplans: [...floorplans.keys()],
-      gmacToFloorplan: [...gmacToFloorplan],
-      maskedAreas: [...floorplans.entries()].map(([id, data]) => ({
-        floorplan_id: id,
-        maskedAreas: data.maskedAreas,
-      })),
-    });
-
     return floorplans;
   } catch (error) {
-    console.error("Failed to initialize floorplans:", error);
+    console.error("inisialisasi floorplan gagal:", error);
     throw error;
   }
 }
@@ -71,7 +58,6 @@ async function initializeAllFloorplans() {
 function setupRealtimeStream() {
   if (!client) {
     client = startMqttClient((topic, beacon) => {
-      console.log(`Received MQTT beacon on topic ${topic}:`, beacon);
       try {
         if (!beacon || typeof beacon !== "object") {
           console.error(
@@ -80,27 +66,9 @@ function setupRealtimeStream() {
           );
           return;
         }
-
-        const { dmac, gmac, calcDist, time } = beacon;
-        if (!dmac || !gmac || calcDist == null || !time) {
-          console.error("Invalid beacon: missing required properties", {
-            beacon,
-          });
-          return;
-        }
-
-        const calc_dist = Number(calcDist);
-        if (isNaN(calc_dist)) {
-          console.error("Invalid calcDist: not a valid number", { calcDist });
-          return;
-        }
-
+        const { dmac, gmac, calcDist: calcDistStr, time } = beacon;
+        const calc_dist = parseFloat(calcDistStr);
         const timestamp = new Date(time.replace(",", ".")).getTime();
-        if (isNaN(timestamp)) {
-          console.error("Invalid timestamp:", time);
-          return;
-        }
-
         const floorplanId = gmacToFloorplan.get(gmac);
         if (!floorplanId) {
           console.error(`No floorplan found for GMAC: ${gmac}`);
@@ -112,10 +80,9 @@ function setupRealtimeStream() {
         }
         const floorplanBeacons = realtimeBeaconPairs.get(floorplanId);
 
-        const now = Date.now();
-        for (let [dmacKey, timestamps] of floorplanBeacons) {
+        for (let [dmacKey, timestamps] of realtimeBeaconPairs) {
           for (let [t, distances] of timestamps) {
-            if (now - t > timeTolerance) timestamps.delete(t);
+            if (timestamp - t > timeTolerance) timestamps.delete(t);
           }
           if (timestamps.size === 0) floorplanBeacons.delete(dmacKey);
         }
@@ -139,11 +106,6 @@ function setupRealtimeStream() {
         if (!dmacData.has(closestTime)) dmacData.set(closestTime, {});
         dmacData.get(closestTime)[gmac] = calc_dist;
 
-        console.log(
-          `Updated realtimeBeaconPairs for floorplan ${floorplanId}:`,
-          [...floorplanBeacons]
-        );
-
         const floorplan = floorplans.get(floorplanId);
         if (floorplan) {
           const positions = generateBeaconPositions(
@@ -153,25 +115,22 @@ function setupRealtimeStream() {
           );
           if (positions.length > 0) {
             client.publish(
-              `beacon/output/${floorplanId}`,
+              `${floorplanId}`,
               JSON.stringify(positions),
               { qos: 1 },
               (err) => {
                 if (err) {
-                  console.error(
-                    `Failed to publish to beacon/output/${floorplanId}:`,
-                    err
-                  );
+                  console.error(`Failed to publish to ${floorplanId}:`, err);
                 } else {
-                  console.log(
-                    `Published positions to beacon/output/${floorplanId}:`,
-                    positions
-                  );
+                  // console.log(
+                  //   `Published positions to ${floorplanId}:`,
+                  //   positions
+                  // );
                 }
               }
             );
           } else {
-            console.log(`No positions generated for floorplan ${floorplanId}`);
+            // console.log(`No positions generated for floorplan ${floorplanId}`);
           }
         }
       } catch (error) {
@@ -179,6 +138,30 @@ function setupRealtimeStream() {
       }
     });
   }
+
+  if (interval) {
+    clearInterval(interval);
+  }
+
+  interval = setInterval(() => {
+    const now = Date.now();
+    // const timestamp = new Date(time.replace(",", ".")).getTime();
+    for (const [floorplanId, floorplanBeacons] of realtimeBeaconPairs) {
+      for (const [dmac, timestamps] of floorplanBeacons) {
+        for (const [t] of timestamps) {
+          if (now - t > timeTolerance) {
+            timestamps.delete(t);
+          }
+        }
+        if (timestamps.size === 0) {
+          floorplanBeacons.delete(dmac);
+        }
+      }
+      if (floorplanBeacons.size === 0) {
+        realtimeBeaconPairs.delete(floorplanId);
+      }
+    }
+  }, 10000);
 }
 
 function generateBeaconPointsBetweenReaders(
@@ -188,24 +171,6 @@ function generateBeaconPointsBetweenReaders(
   secondDist,
   scale
 ) {
-  if (
-    !start ||
-    !end ||
-    firstDist == null ||
-    secondDist == null ||
-    isNaN(firstDist) ||
-    isNaN(secondDist)
-  ) {
-    console.log("Invalid inputs for generateBeaconPointsBetweenReaders:", {
-      start,
-      end,
-      firstDist,
-      secondDist,
-      scale,
-    });
-    return null;
-  }
-
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const length = Math.sqrt(dx * dx + dy * dy);
@@ -225,9 +190,9 @@ function generateBeaconPointsBetweenReaders(
   const perpX = -uy;
   const perpY = ux;
 
-  const spreadLeft = 1;
-  const spreadRight = 1;
-  const spreadAlong = 1;
+  const spreadLeft = 10;
+  const spreadRight = 10;
+  const spreadAlong = 10;
   const offsetPerp =
     Math.random() * (spreadRight + spreadLeft) - (spreadRight + spreadLeft) / 2;
   const offsetAlong = Math.random() * spreadAlong - spreadAlong / 2;
@@ -239,27 +204,19 @@ function generateBeaconPointsBetweenReaders(
 }
 
 function generateBeaconPositions(floorplanId, gateways, scale) {
-  console.log("Generating beacon positions with:", {
-    floorplanId,
-    gateways: [...gateways],
-    scale,
-    beaconPairs: realtimeBeaconPairs.get(floorplanId) || new Map(),
-  });
-
   const pairs = [];
   const floorplanBeacons = realtimeBeaconPairs.get(floorplanId) || new Map();
 
   const now = Date.now();
   for (let [dmac, timestamps] of floorplanBeacons) {
     for (let [t, distances] of timestamps) {
-      if (now - t > timeTolerance) timestamps.delete(t);
+      if (timestamps - t > timeTolerance) timestamps.delete(t);
     }
     if (timestamps.size === 0) floorplanBeacons.delete(dmac);
   }
 
   for (let [dmac, timestamps] of floorplanBeacons) {
     for (let [time, distances] of timestamps) {
-      console.log(`Processing beacon ${dmac} at time ${time}:`, distances);
       const readerDistances = Array.from(gateways.keys())
         .map((gmac) => ({
           gmac,
@@ -267,19 +224,14 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
         }))
         .sort((a, b) => a.distance - b.distance);
 
-      console.log(`Sorted reader distances for ${dmac}:`, readerDistances);
-
       const validReaders = readerDistances.filter(
         (r) => r.distance !== Infinity
       );
-      console.log(`Valid readers for ${dmac}:`, validReaders);
       if (validReaders.length >= 2) {
         const firstReader = validReaders[0].gmac;
         const secondReader = validReaders[1].gmac;
         const firstDist = validReaders[0].distance;
         const secondDist = validReaders[1].distance;
-
-        console.log(`Pairing closest readers: ${firstReader}, ${secondReader}`);
 
         const start = gateways.get(firstReader);
         const end = gateways.get(secondReader);
@@ -298,21 +250,20 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
           second: secondReader,
           firstDist: firstDist,
           secondDist: secondDist,
-          point: point || { x: null, y: null },
+          point,
           firstReaderCoord: { id: firstReader, ...start },
           secondReaderCoord: { id: secondReader, ...end },
           time: new Date(time).toISOString(),
           floorplanId,
         });
       } else {
-        console.log(
-          `Insufficient valid readers for ${dmac}: ${validReaders.length}`
-        );
+        // console.log(
+        //   `Insufficient valid readers for ${dmac}: ${validReaders.length}`
+        // );
       }
     }
   }
 
-  console.log("Generated beacon positions:", pairs);
   return pairs;
 }
 
