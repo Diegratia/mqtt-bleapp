@@ -2,7 +2,7 @@ const { startMqttClient } = require("./mqtt");
 const { fetchAllFloorplans } = require("./database");
 
 let realtimeBeaconPairs = new Map(); // floorplanId -> Map(dmac -> Map(timestamp -> distances))
-const timeTolerance = 3000;
+const timeTolerance = 5000;
 let client;
 const floorplans = new Map(); // floorplanId -> { name, scale, gateways: Map(gmac -> { x, y }), maskedAreas: [] }
 const gmacToFloorplan = new Map(); // gmac -> floorplanId
@@ -59,13 +59,6 @@ function setupRealtimeStream() {
   if (!client) {
     client = startMqttClient((topic, beacon) => {
       try {
-        if (!beacon || typeof beacon !== "object") {
-          console.error(
-            "Invalid beacon: beacon is undefined or not an object",
-            { topic, beacon }
-          );
-          return;
-        }
         const { dmac, gmac, calcDist: calcDistStr, time } = beacon;
         const calc_dist = parseFloat(calcDistStr);
         const timestamp = new Date(time.replace(",", ".")).getTime();
@@ -79,13 +72,6 @@ function setupRealtimeStream() {
           realtimeBeaconPairs.set(floorplanId, new Map());
         }
         const floorplanBeacons = realtimeBeaconPairs.get(floorplanId);
-
-        for (let [dmacKey, timestamps] of realtimeBeaconPairs) {
-          for (let [t, distances] of timestamps) {
-            if (timestamp - t > timeTolerance) timestamps.delete(t);
-          }
-          if (timestamps.size === 0) floorplanBeacons.delete(dmacKey);
-        }
 
         if (!floorplanBeacons.has(dmac)) {
           floorplanBeacons.set(dmac, new Map());
@@ -105,7 +91,17 @@ function setupRealtimeStream() {
         if (!closestTime) closestTime = timestamp;
         if (!dmacData.has(closestTime)) dmacData.set(closestTime, {});
         dmacData.get(closestTime)[gmac] = calc_dist;
-
+        // interval = setInterval(() => {
+        //   for (const [floorplanId, floorplanBeacons] of realtimeBeaconPairs) {
+        //     const floorplan = floorplans.get(floorplanId);
+        //     if (floorplan) {
+        //       const positions = generateBeaconPositions(floorplanId, floorplan.gateways, floorplan.scale);
+        //       if (positions.length > 0) {
+        //         client.publish(`${floorplanId}`, JSON.stringify(positions), { qos: 1 }, ...);
+        //       }
+        //     }
+        //   }
+        // }, 5000);
         const floorplan = floorplans.get(floorplanId);
         if (floorplan) {
           const positions = generateBeaconPositions(
@@ -134,7 +130,7 @@ function setupRealtimeStream() {
           }
         }
       } catch (error) {
-        console.error("Error processing MQTT beacon:", error, beacon);
+        console.error(error, beacon);
       }
     });
   }
@@ -161,7 +157,7 @@ function setupRealtimeStream() {
         realtimeBeaconPairs.delete(floorplanId);
       }
     }
-  }, 10000);
+  }, 5000);
 }
 
 function generateBeaconPointsBetweenReaders(
@@ -206,14 +202,6 @@ function generateBeaconPointsBetweenReaders(
 function generateBeaconPositions(floorplanId, gateways, scale) {
   const pairs = [];
   const floorplanBeacons = realtimeBeaconPairs.get(floorplanId) || new Map();
-
-  const now = Date.now();
-  for (let [dmac, timestamps] of floorplanBeacons) {
-    for (let [t, distances] of timestamps) {
-      if (timestamps - t > timeTolerance) timestamps.delete(t);
-    }
-    if (timestamps.size === 0) floorplanBeacons.delete(dmac);
-  }
 
   for (let [dmac, timestamps] of floorplanBeacons) {
     for (let [time, distances] of timestamps) {
