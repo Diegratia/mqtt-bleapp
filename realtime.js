@@ -1,11 +1,11 @@
 const { startMqttClient } = require("./mqtt");
 const { fetchAllFloorplans } = require("./database");
 
-let realtimeBeaconPairs = new Map(); // floorplanId -> Map(dmac -> Map(timestamp -> distances))
-const timeTolerance = 5000;
+let realtimeBeaconPairs = new Map();
+const timeTolerance = 2000;
 let client;
-const floorplans = new Map(); // floorplanId -> { name, scale, gateways: Map(gmac -> { x, y }), maskedAreas: [] }
-const gmacToFloorplan = new Map(); // gmac -> floorplanId
+const floorplans = new Map();
+const gmacToFloorplan = new Map();
 let interval;
 
 async function initializeAllFloorplans() {
@@ -28,16 +28,15 @@ async function initializeAllFloorplans() {
     }
 
     for (const { floorplan_id, gmac, pos_px_x, pos_px_y } of gateways) {
-      if (floorplans.has(floorplan_id)) {
-        floorplans
-          .get(floorplan_id)
-          .gateways.set(gmac, { x: Number(pos_px_x), y: Number(pos_px_y) });
-        if (!gmacToFloorplan.has(gmac)) {
-          gmacToFloorplan.set(gmac, floorplan_id);
-        } else if (gmacToFloorplan.get(gmac) !== floorplan_id) {
-          console.error(`GMAC ${gmac} associated with multiple floorplans`);
-        }
+      floorplans
+        .get(floorplan_id)
+        .gateways.set(gmac, { x: Number(pos_px_x), y: Number(pos_px_y) });
+      if (!gmacToFloorplan.has(gmac)) {
+        gmacToFloorplan.set(gmac, floorplan_id);
       }
+      // else if (gmacToFloorplan.get(gmac) !== floorplan_id) {
+      //   console.error(`GMAC ${gmac} associated with multiple floorplans`);
+      // }
     }
 
     for (const { floorplan_id, area_shape, restricted_status } of maskedAreas) {
@@ -55,16 +54,16 @@ async function initializeAllFloorplans() {
   }
 }
 
-function setupRealtimeStream() {
+function setupStream() {
   if (!client) {
     client = startMqttClient((topic, beacon) => {
       try {
-        const { dmac, gmac, calcDist: calcDistStr, time } = beacon;
-        const calc_dist = parseFloat(calcDistStr);
+        const { dmac, gmac, calcDist, time } = beacon;
+        const calc_dist = parseFloat(calcDist);
         const timestamp = new Date(time.replace(",", ".")).getTime();
         const floorplanId = gmacToFloorplan.get(gmac);
         if (!floorplanId) {
-          console.error(`No floorplan found for GMAC: ${gmac}`);
+          console.error(`floorplan ot found ${gmac}`);
           return;
         }
 
@@ -111,12 +110,12 @@ function setupRealtimeStream() {
           );
           if (positions.length > 0) {
             client.publish(
-              `${floorplanId}`,
+              `${floorplanId}`.toUpperCase(),
               JSON.stringify(positions),
               { qos: 1 },
               (err) => {
                 if (err) {
-                  console.error(`Failed to publish to ${floorplanId}:`, err);
+                  console.error(`publish fail`, err);
                 } else {
                   // console.log(
                   //   `Published positions to ${floorplanId}:`,
@@ -157,7 +156,7 @@ function setupRealtimeStream() {
         realtimeBeaconPairs.delete(floorplanId);
       }
     }
-  }, 5000);
+  }, timeTolerance);
 }
 
 function generateBeaconPointsBetweenReaders(
@@ -244,10 +243,6 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
           time: new Date(time).toISOString(),
           floorplanId,
         });
-      } else {
-        // console.log(
-        //   `Insufficient valid readers for ${dmac}: ${validReaders.length}`
-        // );
       }
     }
   }
@@ -256,7 +251,7 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
 }
 
 module.exports = {
-  setupRealtimeStream,
+  setupStream,
   generateBeaconPositions,
   initializeAllFloorplans,
 };

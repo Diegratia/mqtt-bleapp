@@ -385,7 +385,7 @@ var mqtt = require("mqtt");
 const { KalmanFilter } = require("kalman-filter");
 // var Topic = "test/demo";
 var Topic = "test/topic";
-var Broker_URL = "mqtt://localhost:1884";
+var Broker_URL = "mqtt://192.168.1.116:1888";
 var scale = 3.8;
 
 var options = {
@@ -393,8 +393,8 @@ var options = {
   // username: "ZSnHSIqUpL",
   // password: "z8YlpKB0UX",
   clientId: "KlienGweh",
-  username: "test1",
-  password: "test1",
+  username: "bio_mqtt",
+  password: "P@ssw0rd",
 };
 
 function startMqttClient(messageCallback) {
@@ -437,9 +437,9 @@ function startMqttClient(messageCallback) {
           //   return;
           // }
           if (
-            beacon.dmac !== "BC572905DB80" &&
-            beacon.dmac !== "BC572905DB75" &&
-            beacon.dmac !== "BC572905D5B3"
+            beacon.dmac !== "BC572913EA73" &&
+            beacon.dmac !== "BC572913EA8A" &&
+            beacon.dmac !== "BC572913EA8B"
           ) {
             return;
           }

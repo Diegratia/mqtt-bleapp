@@ -385,3 +385,10 @@ module.exports = {
   generateBeaconPositions,
   initializeAllFloorplans,
 };
+
+let realtimeBeaconPairs = new Map(); // floorplanId -> Map(dmac -> Map(timestamp -> distances))
+const timeTolerance = 5000;
+let client;
+const floorplans = new Map(); // floorplanId -> { name, scale, gateways: Map(gmac -> { x, y }), maskedAreas: [] }
+const gmacToFloorplan = new Map(); // gmac -> floorplanId
+let interval;
