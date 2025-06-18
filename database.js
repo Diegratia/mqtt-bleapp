@@ -8,7 +8,7 @@ const globalpooldb = {
 const dbConfig = {
   user: "sa",
   password: "Password_123#",
-  server: "192.168.1.116",
+  server: "192.168.1.8",
   database: "BleTrackingDbDev",
   options: {
     encrypt: false,
@@ -57,6 +57,24 @@ async function initializeDatabase(testTableName = null) {
         gmac VARCHAR(12) NOT NULL,
         measure FLOAT,
         FOREIGN KEY (gateway_id) REFERENCES gateways(id)
+      );
+    `);
+
+    await db.request().query(`
+      IF NOT EXISTS (SELECT * FROM sysobjects WHERE name = 'beacon_positions' AND xtype = 'U')
+      CREATE TABLE beacon_positions (
+        id UNIQUEIDENTIFIER PRIMARY KEY,
+        beacon_id VARCHAR(12) NOT NULL,
+        floorplan_id UNIQUEIDENTIFIER NOT NULL,
+        pos_x BIGINT NOT NULL,
+        pos_y BIGINT NOT NULL,
+        first_gateway_id VARCHAR(12) NOT NULL,
+        second_gateway_id VARCHAR(12) NOT NULL,
+        first_distance FLOAT NOT NULL,
+        second_distance FLOAT NOT NULL,
+        timestamp DATETIME NOT NULL,
+        created_at DATETIME DEFAULT GETDATE(),
+        status TINYINT DEFAULT 1
       );
     `);
 

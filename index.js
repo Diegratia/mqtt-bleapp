@@ -4,7 +4,7 @@ const cors = require("cors");
 const { initializeDatabase } = require("./database");
 // const { startMqttClient } = require("./mqtt");
 const {
-  setupStream,
+  setupRealtimeStream,
   generateBeaconPositions,
   initializeAllFloorplans,
   initializeRealtimeData,
@@ -30,7 +30,7 @@ async function startServer() {
   try {
     await initializeDatabase(testTableName);
     await initializeAllFloorplans();
-    setupStream();
+    setupRealtimeStream();
     app.listen(port, () => {
       console.log(`running at http://localhost:${port}`);
     });

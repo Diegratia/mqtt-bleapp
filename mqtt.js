@@ -385,7 +385,7 @@ var mqtt = require("mqtt");
 const { KalmanFilter } = require("kalman-filter");
 // var Topic = "test/demo";
 var Topic = "test/topic";
-var Broker_URL = "mqtt://192.168.1.116:1888";
+var Broker_URL = "mqtt://localhost:1885";
 var scale = 3.8;
 
 var options = {
@@ -393,8 +393,8 @@ var options = {
   // username: "ZSnHSIqUpL",
   // password: "z8YlpKB0UX",
   clientId: "KlienGweh",
-  username: "bio_mqtt",
-  password: "P@ssw0rd",
+  username: "admin",
+  password: "aimer",
 };
 
 function startMqttClient(messageCallback) {
