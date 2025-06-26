@@ -62,7 +62,7 @@ function setupRealtimeStream() {
       try {
         const { dmac, gmac, calcDist: calcDistStr, time } = beacon;
         const calc_dist = parseFloat(calcDistStr);
-        const timestamp = new Date(time.replace(",", ".")).getTime();
+        const timestamp = new Date(time.replace(",", ".") + "Z").getTime();
         const floorplanId = gmacToFloorplan.get(gmac);
         if (!floorplanId) {
           console.error(`No floorplan found for GMAC: ${gmac}`);
@@ -92,7 +92,8 @@ function setupRealtimeStream() {
         if (!closestTime) closestTime = timestamp;
         if (!dmacData.has(closestTime)) dmacData.set(closestTime, {});
         dmacData.get(closestTime)[gmac] = calc_dist;
-
+        // console.log("Original time:", time);
+        // console.log("Parsed timestamp:", new Date(timestamp).toISOString());
         const floorplan = floorplans.get(floorplanId);
         if (floorplan) {
           const positions = generateBeaconPositions(
@@ -109,6 +110,7 @@ function setupRealtimeStream() {
                 if (err) {
                   console.error(`Failed to publish to ${floorplanId}:`, err);
                 }
+                console.log(positions);
               }
             );
           }
@@ -239,6 +241,7 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
           firstReaderCoord: { id: firstReader, ...start },
           secondReaderCoord: { id: secondReader, ...end },
           time: new Date(time).toISOString(),
+          // time,
           floorplanId,
         });
       }

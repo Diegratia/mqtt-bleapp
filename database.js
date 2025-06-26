@@ -8,13 +8,16 @@ const globalpooldb = {
 const dbConfig = {
   user: "sa",
   password: "Password_123#",
-  server: "192.168.1.8",
+  server: "192.168.1.116",
+  port: 1433,
   database: "BleTrackingDbDev",
   options: {
     encrypt: false,
     trustServerCertificate: true,
   },
 };
+
+// Server=103.193.15.120,5433;Database=testingble_gresik;User Id=sa;Password=P@ssw0rd;TrustServerCertificate=True;
 
 async function initializeDatabase(testTableName = null) {
   try {
@@ -73,8 +76,7 @@ async function initializeDatabase(testTableName = null) {
         first_distance FLOAT NOT NULL,
         second_distance FLOAT NOT NULL,
         timestamp DATETIME NOT NULL,
-        created_at DATETIME DEFAULT GETDATE(),
-        status TINYINT DEFAULT 1
+        created_at DATETIME DEFAULT GETDATE()
       );
     `);
 

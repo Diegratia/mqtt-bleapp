@@ -11,10 +11,8 @@ async function saveBeaconPositions(positions) {
     const { db } = getDbPool();
 
     for (const pos of positions) {
-      // Buat request baru untuk setiap posisi
       const request = db.request();
 
-      // Ikat parameter dengan tipe data yang sesuai
       request.input("id", sql.UniqueIdentifier, uuidv4());
       request.input("beacon_id", sql.VarChar(12), pos.beaconId);
       request.input("floorplan_id", sql.UniqueIdentifier, pos.floorplanId);
@@ -26,16 +24,15 @@ async function saveBeaconPositions(positions) {
       request.input("second_distance", sql.Float, pos.secondDist);
       request.input("timestamp", sql.DateTime, new Date(pos.time));
 
-      // Jalankan kueri
       await request.query(`
         INSERT INTO beacon_positions (
           id, beacon_id, floorplan_id, pos_x, pos_y,
           first_gateway_id, second_gateway_id, first_distance, second_distance,
-          timestamp, created_at, status
+          timestamp, created_at
         ) VALUES (
           @id, @beacon_id, @floorplan_id, @pos_x, @pos_y,
           @first_gateway_id, @second_gateway_id, @first_distance, @second_distance,
-          @timestamp, GETDATE(), 1
+          @timestamp, GETDATE()
         )
       `);
     }
@@ -43,7 +40,7 @@ async function saveBeaconPositions(positions) {
     console.log(`Saved ${positions.length} positions to beacon_positions`);
   } catch (error) {
     console.error(`Failed to save positions to database: ${error.message}`);
-    throw error; // Untuk debugging
+    throw error;
   }
 }
 
