@@ -5,7 +5,7 @@ const { saveBeaconPositions } = require("./beaconStorage");
 let realtimeBeaconPairs = new Map(); // floorplanId -> Map(dmac -> Map(timestamp -> { gmac: calcDist }))
 const timeTolerance = 5000;
 let client;
-const floorplans = new Map(); // floorplanId -> { name, scale, gateways: Map(gmac -> { x, y }), maskedAreas: [] }
+const floorplans = new Map(); // floorplanId -> { name, scale, gateways: Map(gmac -> { x, y }), maskedAreas: [], bounds: { minX, maxX, minY, maxY } }
 const gmacToFloorplan = new Map(); // gmac -> floorplanId
 let interval;
 
@@ -25,6 +25,12 @@ async function initializeAllFloorplans() {
         scale,
         gateways: new Map(),
         maskedAreas: [],
+        bounds: {
+          minX: Infinity,
+          maxX: -Infinity,
+          minY: Infinity,
+          maxY: -Infinity,
+        },
       });
     }
 
@@ -44,42 +50,31 @@ async function initializeAllFloorplans() {
     for (const { floorplan_id, area_shape, restricted_status } of maskedAreas) {
       if (floorplans.has(floorplan_id) && area_shape) {
         const polygon = JSON.parse(area_shape);
-        // Validasi minimal 3 node untuk poligon
-        if (polygon.length < 3) {
-          console.warn(
-            `Polygon for floorplan ${floorplan_id} has less than 3 nodes, skipping.`
-          );
-          continue;
-        }
-        // Verifikasi arah berlawanan jarum jam (opsional, untuk debugging)
-        const area = calculatePolygonArea(polygon);
-        if (area > 0) {
-          console.warn(
-            `Polygon for floorplan ${floorplan_id} may not be counterclockwise, area: ${area}`
-          );
-        }
         floorplans
           .get(floorplan_id)
           .maskedAreas.push({ area_shape, restricted_status });
+        const bounds = floorplans.get(floorplan_id).bounds;
+        polygon.forEach((point) => {
+          bounds.minX = Math.min(bounds.minX, point.x_px);
+          bounds.maxX = Math.max(bounds.maxX, point.x_px);
+          bounds.minY = Math.min(bounds.minY, point.y_px);
+          bounds.maxY = Math.max(bounds.maxY, point.y_px);
+        });
       }
     }
 
-    console.log(`Initialized ${floorplans.size} floorplans`);
+    console.log(
+      `Initialized ${floorplans.size} floorplans with bounds:`,
+      Array.from(floorplans.entries()).map(([id, fp]) => ({
+        id,
+        bounds: fp.bounds,
+      }))
+    );
     return floorplans;
   } catch (error) {
     console.error("Inisialisasi floorplan gagal:", error);
     throw error;
   }
-}
-
-// Fungsi untuk menghitung area poligon (untuk memverifikasi arah)
-function calculatePolygonArea(polygon) {
-  let area = 0;
-  for (let i = 0; i < polygon.length; i++) {
-    let j = (i + 1) % polygon.length;
-    area += (polygon[j].x - polygon[i].x) * (polygon[j].y + polygon[i].y);
-  }
-  return area / 2;
 }
 
 // Fungsi untuk memeriksa apakah titik berada di dalam poligon
@@ -88,19 +83,19 @@ function pointInPolygon(point, polygon) {
     y = point.y;
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    let xi = polygon[i].x,
-      yi = polygon[i].y;
-    let xj = polygon[j].x,
-      yj = polygon[j].y;
+    let xi = polygon[i].x_px,
+      yi = polygon[i].y_px;
+    let xj = polygon[j].x_px,
+      yj = polygon[j].y_px;
     let intersect =
       yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
     if (intersect) inside = !inside;
   }
-  console.log(
-    `Point (${x}, ${y}) checked against polygon with IDs: [${polygon
-      .map((p) => p.id)
-      .join(", ")}], Result: ${inside}`
-  );
+  // console.log(
+  //   `Point (${x}, ${y}) checked against polygon with IDs: [${polygon
+  //     .map((p) => p.id)
+  //     .join(", ")}], Result: ${inside}`
+  // );
   return inside;
 }
 
@@ -304,9 +299,11 @@ function generateBeaconPointsBetweenReaders(
   const perpX = -uy;
   const perpY = ux;
 
-  const spreadLeft = 10;
-  const spreadRight = 10;
-  const spreadAlong = 10;
+  const floorplan = floorplans.get(floorplanId);
+  const { minX, maxX, minY, maxY } = floorplan.bounds;
+  const spreadLeft = 0.1;
+  const spreadRight = 0.1;
+  const spreadAlong = 0.1;
   const maxAttempts = 10;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -315,22 +312,26 @@ function generateBeaconPointsBetweenReaders(
       (spreadRight + spreadLeft) / 2;
     const offsetAlong = Math.random() * spreadAlong - spreadAlong / 2;
 
-    const x = Math.round(baseX + perpX * offsetPerp + ux * offsetAlong);
-    const y = Math.round(baseY + perpY * offsetPerp + uy * offsetAlong);
+    let x = Math.round(baseX + perpX * offsetPerp + ux * offsetAlong);
+    let y = Math.round(baseY + perpY * offsetPerp + uy * offsetAlong);
+
+    // Batasi koordinat agar tidak melebihi batas node
+    x = Math.max(minX, Math.min(maxX, x));
+    y = Math.max(minY, Math.min(maxY, y));
 
     const point = { x, y };
 
     if (isPointValid(point, floorplanId)) {
-      console.log(
-        `Valid point generated: (${x}, ${y}) for floorplan ${floorplanId}`
-      );
+      // console.log(
+      //   `Valid point generated: (${x}, ${y}) within bounds [${minX}, ${maxX}, ${minY}, ${maxY}] for floorplan ${floorplanId}`
+      // );
       return point;
     }
   }
 
-  console.log(
-    `No valid point found after ${maxAttempts} attempts for floorplan ${floorplanId}`
-  );
+  // console.log(
+  //   `No valid point found after ${maxAttempts} attempts for floorplan ${floorplanId}`
+  // );
   return null;
 }
 

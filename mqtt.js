@@ -440,13 +440,10 @@ function startMqttClient(messageCallback) {
           //   return;
           // }
           if (
-            beacon.dmac !== "BC572913EA73" &&
-            beacon.dmac !== "BC572913EA8A" &&
-            beacon.dmac !== "BC572913EA8B"
+            beacon.dmac === "BC572913EA8B" ||
+            beacon.dmac === "BC572905DB75" ||
+            beacon.dmac === "BC572913EA8A"
           ) {
-            return;
-          }
-          {
             // beacon.gmac =
             // console.log(beacon);
             var refpower = beacon.refpower || measure;
@@ -465,6 +462,8 @@ function startMqttClient(messageCallback) {
             // console.log(filteredBeacon);
 
             messageCallback(topic, filteredBeacon);
+          } else {
+            return;
           }
         });
       }

@@ -37,7 +37,7 @@ async function saveBeaconPositions(positions) {
       `);
     }
 
-    console.log(`Saved ${positions.length} positions to beacon_positions`);
+    // console.log(`Saved ${positions.length} positions to beacon_positions`);
   } catch (error) {
     console.error(`Failed to save positions to database: ${error.message}`);
     throw error;
