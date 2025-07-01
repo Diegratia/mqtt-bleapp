@@ -36,6 +36,8 @@ async function initializeAllFloorplans() {
           .gateways.set(gmac, { x: Number(pos_px_x), y: Number(pos_px_y) });
         if (!gmacToFloorplan.has(gmac)) {
           gmacToFloorplan.set(gmac, floorplan_id);
+        } else if (gmacToFloorplan.get(gmac) !== floorplan_id) {
+          console.error(`GMAC ${gmac} associated with multiple floorplans`);
         }
       }
     }
@@ -149,17 +151,17 @@ function isPointValid(point, floorplanId) {
 
 function setupRealtimeStream() {
   if (!client) {
-    client = startMqttClient((topic, filteredBeacon) => {
+    client = startMqttClient((topic, beacon) => {
       try {
-        const { dmac, gmac, calcDist: calcDistStr, time } = filteredBeacon;
+        const { dmac, gmac, calcDist: calcDistStr, time } = beacon;
         const calc_dist = parseFloat(calcDistStr);
         const timestamp = new Date(time.replace(",", ".") + "Z").getTime();
         const floorplanId = gmacToFloorplan.get(gmac);
 
-        // if (!floorplanId) {
-        //   console.error(`No floorplan found for GMAC: ${gmac}`);
-        //   return;
-        // }
+        if (!floorplanId) {
+          console.error(`No floorplan found for GMAC: ${gmac}`);
+          return;
+        }
 
         if (!realtimeBeaconPairs.has(floorplanId)) {
           realtimeBeaconPairs.set(floorplanId, new Map());
@@ -218,7 +220,7 @@ function setupRealtimeStream() {
           }
         }
       } catch (error) {
-        console.error("Error processing beacon:", error, filteredBeacon);
+        console.error("Error processing beacon:", error, beacon);
       }
     });
   }
@@ -266,9 +268,9 @@ function setupRealtimeStream() {
         realtimeBeaconPairs.delete(floorplanId);
       }
     }
-  }, timeTolerance);
+  }, 5000);
 
-  // pooling periksa database
+  // Tambahkan polling untuk memeriksa perubahan database
   if (refreshInterval) {
     clearInterval(refreshInterval);
   }
@@ -278,7 +280,7 @@ function setupRealtimeStream() {
     } catch (error) {
       console.error("Failed to refresh database:", error);
     }
-  }, 120000); // 2 menit
+  }, 600000); // Periksa setiap 600 detik
 }
 
 function generateBeaconPointsBetweenReaders(
@@ -298,7 +300,6 @@ function generateBeaconPointsBetweenReaders(
   const uy = dy / length;
   const lengthMeter = length * scale;
 
-  //rumus perbanding (a/a*b)*(jarak reader pertama dan kedua)
   const totalDist = firstDist + secondDist;
   if (totalDist === 0 || totalDist > lengthMeter) return null;
 
@@ -310,9 +311,9 @@ function generateBeaconPointsBetweenReaders(
   const perpX = -uy;
   const perpY = ux;
 
-  const spreadLeft = 1;
-  const spreadRight = 1;
-  const spreadAlong = 1;
+  const spreadLeft = 0.1;
+  const spreadRight = 0.1;
+  const spreadAlong = 0.1;
   const maxAttempts = 10;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
