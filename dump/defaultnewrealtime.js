@@ -9,6 +9,8 @@ const floorplans = new Map(); // floorplanId -> { name, scale, gateways: Map(gma
 const gmacToFloorplans = new Map(); // gmac -> Set<floorplanId>
 let interval;
 let refreshInterval;
+const maxSpeed = 1;
+const lastBeaconState = new Map(); // dmac -> { x, y, timestamp }
 
 async function initializeAllFloorplans() {
   try {
@@ -251,9 +253,9 @@ function generateBeaconPointsBetweenReaders(
   //   const x = Math.round(baseX + perpX * offsetP + ux * offsetA);
   //   const y = Math.round(baseY + perpY * offsetP + uy * offsetA);
 
-  const spreadLeft = 1;
-  const spreadRight = 1;
-  const spreadAlong = 1;
+  const spreadLeft = 5;
+  const spreadRight = 5;
+  const spreadAlong = 5;
   const maxAttempts = 10;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -313,6 +315,75 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
   }
   return pairs;
 }
+
+// function generateBeaconPositions(floorplanId, gateways, scale) {
+//   const pairs = [];
+//   const floorplanBeacons = realtimeBeaconPairs.get(floorplanId) || new Map();
+//   for (let [dmac, timestamps] of floorplanBeacons) {
+//     for (let [time, distances] of timestamps) {
+//       const readerDistances = Array.from(gateways.keys())
+//         .map((gmac) => ({ gmac, distance: distances[gmac] ?? Infinity }))
+//         .sort((a, b) => a.distance - b.distance)
+//         .filter((r) => r.distance !== Infinity);
+
+//       if (readerDistances.length >= 2) {
+//         const [first, second] = readerDistances;
+//         const start = gateways.get(first.gmac);
+//         const end = gateways.get(second.gmac);
+//         const point = generateBeaconPointsBetweenReaders(
+//           start,
+//           end,
+//           first.distance,
+//           second.distance,
+//           scale,
+//           floorplanId
+//         );
+
+//         if (point) {
+//           const currentTime = time;
+//           const last = lastBeaconState.get(dmac);
+
+//           let isValidSpeed = true;
+//           if (last) {
+//             const dx = point.x - last.x;
+//             const dy = point.y - last.y;
+//             const dt = (currentTime - last.timestamp) / 1000;
+//             const dist = Math.sqrt(dx * dx + dy * dy) * scale;
+//             const speed = dist / dt;
+
+//             if (speed > maxSpeed) {
+//               isValidSpeed = false;
+//               // console.log(`Beacon ${dmac} terlalu cepat: ${speed.toFixed(2)} m/s`);
+//             }
+//           }
+
+//           if (isValidSpeed) {
+//             lastBeaconState.set(dmac, {
+//               x: point.x,
+//               y: point.y,
+//               timestamp: currentTime,
+//             });
+
+//             pairs.push({
+//               beaconId: dmac,
+//               pair: `${first.gmac}_${second.gmac}`,
+//               first: first.gmac,
+//               second: second.gmac,
+//               firstDist: first.distance,
+//               secondDist: second.distance,
+//               point,
+//               firstReaderCoord: { id: first.gmac, ...start },
+//               secondReaderCoord: { id: second.gmac, ...end },
+//               time: new Date(time).toISOString(),
+//               floorplanId,
+//             });
+//           }
+//         }
+//       }
+//     }
+//   }
+//   return pairs;
+// }
 
 module.exports = {
   setupRealtimeStream,

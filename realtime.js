@@ -6,9 +6,12 @@ let realtimeBeaconPairs = new Map(); // floorplanId -> Map(dmac -> Map(timestamp
 const timeTolerance = 5000;
 let client;
 const floorplans = new Map(); // floorplanId -> { name, scale, gateways: Map(gmac -> { x, y }), maskedAreas: [] }
-const gmacToFloorplan = new Map(); // gmac -> floorplanId
+const gmacToFloorplans = new Map(); // gmac -> Set<floorplanId>
 let interval;
-let refreshInterval; // Interval untuk memeriksa perubahan database
+let refreshInterval;
+const maxSpeed = 1; // Sesuaikan kecepatan maksimum
+const lastBeaconState = new Map(); // dmac -> { x, y, timestamp, primaryFloorplanId }
+const observationWindow = 10; 
 
 async function initializeAllFloorplans() {
   try {
@@ -18,7 +21,7 @@ async function initializeAllFloorplans() {
       maskedAreas,
     } = await fetchAllFloorplans();
     floorplans.clear();
-    gmacToFloorplan.clear();
+    gmacToFloorplans.clear();
 
     for (const { floorplan_id, name, scale } of floorplanData) {
       floorplans.set(floorplan_id, {
@@ -34,35 +37,32 @@ async function initializeAllFloorplans() {
         floorplans
           .get(floorplan_id)
           .gateways.set(gmac, { x: Number(pos_px_x), y: Number(pos_px_y) });
-        if (!gmacToFloorplan.has(gmac)) {
-          gmacToFloorplan.set(gmac, floorplan_id);
+
+        if (!gmacToFloorplans.has(gmac)) {
+          gmacToFloorplans.set(gmac, new Set());
         }
+        gmacToFloorplans.get(gmac).add(floorplan_id);
       }
     }
 
     for (const { floorplan_id, area_shape, restricted_status } of maskedAreas) {
       if (floorplans.has(floorplan_id) && area_shape) {
         const polygonWithIds = JSON.parse(area_shape);
-
         const polygon = polygonWithIds.map(({ x_px, y_px }) => ({
           x_px,
           y_px,
         }));
-        // Validasi minimal 3 node untuk poligon
-        if (polygon.length < 3) {
-          console.warn(
-            `Polygon for floorplan ${floorplan_id} has less than 3 nodes, skipping.`
-          );
-          continue;
+        if (polygon.length >= 3) {
+          floorplans.get(floorplan_id).maskedAreas.push({
+            area_shape: JSON.stringify(polygon),
+            restricted_status,
+          });
         }
-        floorplans.get(floorplan_id).maskedAreas.push({
-          area_shape: JSON.stringify(polygon),
-          restricted_status,
-        });
       }
     }
 
     console.log(`Initialized ${floorplans.size} floorplans`);
+    console.log("gmacToFloorplans:", Object.fromEntries(gmacToFloorplans));
     return floorplans;
   } catch (error) {
     console.error("Inisialisasi floorplan gagal:", error);
@@ -73,8 +73,8 @@ async function initializeAllFloorplans() {
 // Fungsi untuk memeriksa apakah titik berada di dalam poligon
 function pointInPolygon(point, polygon) {
   let x = point.x,
-    y = point.y;
-  let inside = false;
+    y = point.y,
+    inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
     let xi = polygon[i].x_px,
       yi = polygon[i].y_px;
@@ -84,11 +84,6 @@ function pointInPolygon(point, polygon) {
       yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
     if (intersect) inside = !inside;
   }
-  // console.log(
-  //   `Point (${x}, ${y}) checked against polygon: [${polygon
-  //     .map((p) => `(${p.x_px}, ${p.y_px})`)
-  //     .join(", ")}], Result: ${inside}`
-  // );
   return inside;
 }
 
@@ -96,55 +91,74 @@ function pointInPolygon(point, polygon) {
 function isPointValid(point, floorplanId) {
   const floorplan = floorplans.get(floorplanId);
   if (!floorplan) return false;
-
   const { maskedAreas } = floorplan;
-
-  // Periksa apakah ada area restrict
   const isInRestrictedArea = maskedAreas.some((area) => {
     if (area.restricted_status === "restrict") {
       try {
         const polygon = JSON.parse(area.area_shape);
-        const result = pointInPolygon(point, polygon);
-        console.log(`Restricted area check: ${result}`);
-        return result;
-      } catch (error) {
-        console.error(
-          `Error parsing area_shape for floorplan ${floorplanId}:`,
-          error
-        );
+        return pointInPolygon(point, polygon);
+      } catch {
         return false;
       }
     }
     return false;
   });
-
   if (isInRestrictedArea) return false;
 
-  // Periksa apakah ada area non-restrict dan apakah titik berada di dalamnya
-  const hasNonRestrictAreas = maskedAreas.some(
-    (area) => area.restricted_status === "non-restrict"
+  const hasNonRestrict = maskedAreas.some(
+    (a) => a.restricted_status === "non-restrict"
   );
-  if (hasNonRestrictAreas) {
-    const isInNonRestrictArea = maskedAreas.some((area) => {
+  if (hasNonRestrict) {
+    return maskedAreas.some((area) => {
       if (area.restricted_status === "non-restrict") {
         try {
           const polygon = JSON.parse(area.area_shape);
-          const result = pointInPolygon(point, polygon);
-          return result;
-        } catch (error) {
-          console.error(
-            `Error parsing area_shape for floorplan ${floorplanId}:`,
-            error
-          );
+          return pointInPolygon(point, polygon);
+        } catch {
           return false;
         }
       }
       return false;
     });
-    return isInNonRestrictArea;
   }
 
   return true;
+}
+
+function determineBestFloorplan(dmac, positions) {
+  const validPositions = positions.filter(
+    (p) => p.point && isPointValid(p.point, p.floorplanId)
+  );
+  if (validPositions.length === 0) return null;
+
+  // Pilih floorplan dengan jumlah posisi valid terbanyak atau rata-rata jarak terkecil
+  const floorplanStats = new Map();
+  validPositions.forEach((p) => {
+    if (!floorplanStats.has(p.floorplanId)) {
+      floorplanStats.set(p.floorplanId, { count: 0, totalDist: 0 });
+    }
+    const stats = floorplanStats.get(p.floorplanId);
+    stats.count++;
+    // Aproksimasi jarak berdasarkan firstDist (bisa disesuaikan)
+    stats.totalDist += p.firstDist;
+  });
+
+  let bestFloorplanId = null;
+  let maxCount = -1;
+  let minAvgDist = Infinity;
+  for (const [floorplanId, stats] of floorplanStats) {
+    const avgDist = stats.totalDist / stats.count;
+    if (
+      stats.count > maxCount ||
+      (stats.count === maxCount && avgDist < minAvgDist)
+    ) {
+      maxCount = stats.count;
+      minAvgDist = avgDist;
+      bestFloorplanId = floorplanId;
+    }
+  }
+
+  return bestFloorplanId;
 }
 
 function setupRealtimeStream() {
@@ -154,67 +168,134 @@ function setupRealtimeStream() {
         const { dmac, gmac, calcDist: calcDistStr, time } = filteredBeacon;
         const calc_dist = parseFloat(calcDistStr);
         const timestamp = new Date(time.replace(",", ".") + "Z").getTime();
-        const floorplanId = gmacToFloorplan.get(gmac);
+        const floorplanIds = Array.from(gmacToFloorplans.get(gmac) || []);
+        if (!floorplanIds.length) return;
 
-        // if (!floorplanId) {
-        //   console.error(`No floorplan found for GMAC: ${gmac}`);
-        //   return;
-        // }
-
-        if (!realtimeBeaconPairs.has(floorplanId)) {
-          realtimeBeaconPairs.set(floorplanId, new Map());
+        // Inisialisasi atau ambil state beacon
+        let beaconState = lastBeaconState.get(dmac);
+        if (!beaconState) {
+          beaconState = {
+            x: null,
+            y: null,
+            timestamp: null,
+            observationCount: 0,
+            positions: [],
+          };
+          lastBeaconState.set(dmac, beaconState);
         }
-        const floorplanBeacons = realtimeBeaconPairs.get(floorplanId);
 
-        if (!floorplanBeacons.has(dmac)) {
-          floorplanBeacons.set(dmac, new Map());
-        }
-        const dmacData = floorplanBeacons.get(dmac);
+        // Kumpulkan posisi dari semua floorplan untuk pengamatan awal
+        const positions = [];
+        for (const floorplanId of floorplanIds) {
+          if (!realtimeBeaconPairs.has(floorplanId)) {
+            realtimeBeaconPairs.set(floorplanId, new Map());
+          }
+          const floorplanBeacons = realtimeBeaconPairs.get(floorplanId);
 
-        let closestTime = null;
-        let minDiff = Infinity;
-        for (let [t, distances] of dmacData) {
-          const diff = Math.abs(timestamp - t);
-          if (diff < minDiff && diff <= timeTolerance) {
-            minDiff = diff;
-            closestTime = t;
+          if (!floorplanBeacons.has(dmac)) {
+            floorplanBeacons.set(dmac, new Map());
+          }
+          const dmacData = floorplanBeacons.get(dmac);
+
+          let closestTime = null,
+            minDiff = Infinity;
+          for (let [t] of dmacData) {
+            const diff = Math.abs(timestamp - t);
+            if (diff < minDiff && diff <= timeTolerance) {
+              minDiff = diff;
+              closestTime = t;
+            }
+          }
+
+          if (!closestTime) closestTime = timestamp;
+          if (!dmacData.has(closestTime)) dmacData.set(closestTime, {});
+          dmacData.get(closestTime)[gmac] = calc_dist;
+
+          const floorplan = floorplans.get(floorplanId);
+          if (floorplan) {
+            const pos = generateBeaconPositions(
+              floorplanId,
+              floorplan.gateways,
+              floorplan.scale
+            );
+            positions.push(...pos.map((p) => ({ ...p, floorplanId })));
           }
         }
 
-        if (!closestTime) closestTime = timestamp;
-        if (!dmacData.has(closestTime)) dmacData.set(closestTime, {});
-        dmacData.get(closestTime)[gmac] = calc_dist;
+        // Tingkatkan hitungan pengamatan
+        beaconState.observationCount++;
+        beaconState.positions.push(...positions);
 
-        const floorplan = floorplans.get(floorplanId);
-        if (floorplan) {
-          const positions = generateBeaconPositions(
-            floorplanId,
-            floorplan.gateways,
-            floorplan.scale
+        // Tentukan floorplan terbaik setelah jendela pengamatan
+        let primaryFloorplanId = beaconState.primaryFloorplanId;
+        if (beaconState.observationCount >= observationWindow) {
+          primaryFloorplanId = determineBestFloorplan(
+            dmac,
+            beaconState.positions
           );
-
-          // Filter posisi berdasarkan masked area
-          const validPositions = positions.filter((pos) => {
-            const { point, beaconId, floorplanId } = pos;
-            if (!point) return false;
-            const isValid = isPointValid(point, floorplanId);
+          if (
+            primaryFloorplanId &&
+            primaryFloorplanId !== beaconState.primaryFloorplanId
+          ) {
             // console.log(
-            //   `Position (${point.x}, ${point.y}) for beacon ${beaconId} is valid: ${isValid}`
+            //   `Updated primary floorplan for ${dmac} to ${primaryFloorplanId}`
             // );
-            return isValid;
-          });
+            beaconState.primaryFloorplanId = primaryFloorplanId;
+          }
+          // Reset positions setelah penentuan
+          beaconState.positions = positions.slice(-observationWindow);
+        }
 
-          if (validPositions.length > 0) {
-            client.publish(
-              `${floorplanId}`,
-              JSON.stringify(validPositions),
-              { qos: 1 },
-              (err) => {
-                if (err) {
-                  console.error(`Failed to publish to ${floorplanId}:`, err);
+        // Proses hanya untuk floorplan utama
+        if (primaryFloorplanId) {
+          const floorplan = floorplans.get(primaryFloorplanId);
+          if (floorplan) {
+            const validPositions = positions.filter(
+              (p) =>
+                p.floorplanId === primaryFloorplanId &&
+                p.point &&
+                isPointValid(p.point, primaryFloorplanId)
+            );
+            if (validPositions.length > 0) {
+              client.publish(
+                `${primaryFloorplanId}`,
+                JSON.stringify(validPositions),
+                { qos: 1 }
+              );
+            }
+
+            // Update lastBeaconState dengan posisi terbaru
+            const latestPos = validPositions[0];
+            if (latestPos) {
+              const currentTime = timestamp;
+              const last = {
+                x: beaconState.x,
+                y: beaconState.y,
+                timestamp: beaconState.timestamp,
+              };
+
+              let isValidSpeed = true;
+              if (last.x !== null && last.y !== null) {
+                const dx = latestPos.point.x - last.x;
+                const dy = latestPos.point.y - last.y;
+                const dt = (currentTime - last.timestamp) / 1000;
+                const dist = Math.sqrt(dx * dx + dy * dy) * floorplan.scale;
+                const speed = dist / dt;
+
+                if (speed > maxSpeed) {
+                  isValidSpeed = false;
+                  // console.log(
+                  //   `Beacon ${dmac} terlalu cepat: ${speed.toFixed(2)} m/s`
+                  // );
                 }
               }
-            );
+
+              if (isValidSpeed) {
+                beaconState.x = latestPos.point.x;
+                beaconState.y = latestPos.point.y;
+                beaconState.timestamp = currentTime;
+              }
+            }
           }
         }
       } catch (error) {
@@ -223,14 +304,10 @@ function setupRealtimeStream() {
     });
   }
 
-  if (interval) {
-    clearInterval(interval);
-  }
-
+  if (interval) clearInterval(interval);
   interval = setInterval(async () => {
     const now = Date.now();
-
-    for (const [floorplanId, floorplanBeacons] of realtimeBeaconPairs) {
+    for (const [floorplanId, beacons] of realtimeBeaconPairs) {
       const floorplan = floorplans.get(floorplanId);
       if (floorplan) {
         const positions = generateBeaconPositions(
@@ -238,47 +315,27 @@ function setupRealtimeStream() {
           floorplan.gateways,
           floorplan.scale
         );
-
-        // Filter posisi untuk penyimpanan
-        const validPositions = positions.filter((pos) => {
-          const { point, beaconId, floorplanId } = pos;
-          if (!point) return false;
-          return isPointValid(point, floorplanId);
-        });
-
-        if (validPositions.length > 0) {
-          await saveBeaconPositions(validPositions);
-        }
+        const valid = positions.filter(
+          (p) => p.point && isPointValid(p.point, floorplanId)
+        );
+        if (valid.length > 0) await saveBeaconPositions(valid);
       }
 
-      // Bersihkan data lama
-      for (const [dmac, timestamps] of floorplanBeacons) {
+      for (const [dmac, timestamps] of beacons) {
         for (const [t] of timestamps) {
-          if (now - t > timeTolerance) {
-            timestamps.delete(t);
-          }
+          if (now - t > timeTolerance) timestamps.delete(t);
         }
-        if (timestamps.size === 0) {
-          floorplanBeacons.delete(dmac);
-        }
+        if (timestamps.size === 0) beacons.delete(dmac);
       }
-      if (floorplanBeacons.size === 0) {
-        realtimeBeaconPairs.delete(floorplanId);
-      }
+      if (beacons.size === 0) realtimeBeaconPairs.delete(floorplanId);
     }
   }, timeTolerance);
 
-  // pooling periksa database
-  if (refreshInterval) {
-    clearInterval(refreshInterval);
-  }
-  refreshInterval = setInterval(async () => {
-    try {
-      await initializeAllFloorplans();
-    } catch (error) {
-      console.error("Failed to refresh database:", error);
-    }
-  }, 120000); // 2 menit
+  if (refreshInterval) clearInterval(refreshInterval);
+  refreshInterval = setInterval(
+    () => initializeAllFloorplans().catch(console.error),
+    120000
+  );
 }
 
 function generateBeaconPointsBetweenReaders(
@@ -294,26 +351,23 @@ function generateBeaconPointsBetweenReaders(
   const length = Math.sqrt(dx * dx + dy * dy);
   if (length === 0) return null;
 
-  const ux = dx / length;
-  const uy = dy / length;
+  const ux = dx / length,
+    uy = dy / length;
   const lengthMeter = length * scale;
-
-  //rumus perbanding (a/a*b)*(jarak reader pertama dan kedua)
   const totalDist = firstDist + secondDist;
   if (totalDist === 0 || totalDist > lengthMeter) return null;
 
   const ratio = firstDist / totalDist;
   const distFromStart = ratio * lengthMeter;
-
   const baseX = start.x + ux * distFromStart;
   const baseY = start.y + uy * distFromStart;
   const perpX = -uy;
   const perpY = ux;
 
-  const spreadLeft = 1;
-  const spreadRight = 1;
-  const spreadAlong = 1;
-  const maxAttempts = 10;
+  const spreadLeft = 2;
+  const spreadRight = 2;
+  const spreadAlong = 2;
+  const maxAttempts = 20;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const offsetPerp =
@@ -325,49 +379,30 @@ function generateBeaconPointsBetweenReaders(
     const y = Math.round(baseY + perpY * offsetPerp + uy * offsetAlong);
 
     const point = { x, y };
-
-    if (isPointValid(point, floorplanId)) {
-      return point;
-    }
+    if (isPointValid(point, floorplanId)) return point;
   }
-
-  // console.log(
-  //   `No valid point found after ${maxAttempts} attempts for floorplan ${floorplanId}`
-  // );
   return null;
 }
 
 function generateBeaconPositions(floorplanId, gateways, scale) {
   const pairs = [];
   const floorplanBeacons = realtimeBeaconPairs.get(floorplanId) || new Map();
-
   for (let [dmac, timestamps] of floorplanBeacons) {
     for (let [time, distances] of timestamps) {
       const readerDistances = Array.from(gateways.keys())
-        .map((gmac) => ({
-          gmac,
-          distance: distances[gmac] !== undefined ? distances[gmac] : Infinity,
-        }))
-        .sort((a, b) => a.distance - b.distance);
+        .map((gmac) => ({ gmac, distance: distances[gmac] ?? Infinity }))
+        .sort((a, b) => a.distance - b.distance)
+        .filter((r) => r.distance !== Infinity);
 
-      const validReaders = readerDistances.filter(
-        (r) =>
-          r.distance !== Infinity && gmacToFloorplan.get(r.gmac) === floorplanId
-      );
-
-      if (validReaders.length >= 2) {
-        const firstReader = validReaders[0].gmac;
-        const secondReader = validReaders[1].gmac;
-        const firstDist = validReaders[0].distance;
-        const secondDist = validReaders[1].distance;
-
-        const start = gateways.get(firstReader);
-        const end = gateways.get(secondReader);
+      if (readerDistances.length >= 2) {
+        const [first, second] = readerDistances;
+        const start = gateways.get(first.gmac);
+        const end = gateways.get(second.gmac);
         const point = generateBeaconPointsBetweenReaders(
           start,
           end,
-          firstDist,
-          secondDist,
+          first.distance,
+          second.distance,
           scale,
           floorplanId
         );
@@ -375,14 +410,14 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
         if (point) {
           pairs.push({
             beaconId: dmac,
-            pair: `${firstReader}_${secondReader}`,
-            first: firstReader,
-            second: secondReader,
-            firstDist: firstDist,
-            secondDist: secondDist,
+            pair: `${first.gmac}_${second.gmac}`,
+            first: first.gmac,
+            second: second.gmac,
+            firstDist: first.distance,
+            secondDist: second.distance,
             point,
-            firstReaderCoord: { id: firstReader, ...start },
-            secondReaderCoord: { id: secondReader, ...end },
+            firstReaderCoord: { id: first.gmac, ...start },
+            secondReaderCoord: { id: second.gmac, ...end },
             time: new Date(time).toISOString(),
             floorplanId,
           });
@@ -390,7 +425,6 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
       }
     }
   }
-
   return pairs;
 }
 
