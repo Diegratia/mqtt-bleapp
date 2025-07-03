@@ -12,7 +12,7 @@ const path = require("path");
 const minimist = require("minimist");
 
 const app = express();
-const port = 3300; 
+const port = 3300;
 
 const args = minimist(process.argv.slice(2));
 const testTableName = args.t;

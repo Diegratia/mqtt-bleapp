@@ -46,12 +46,12 @@ function startMqttClient(messageCallback) {
       if (data.obj) {
         data.obj.forEach((beacon) => {
           if (beacon.type !== 4) return;
-          if (
-            beacon.dmac == "BC572913EA8B" ||
-            beacon.dmac == "BC572913EA73" ||
-            beacon.dmac == "BC572913EA8A"
-          )
-            beacon.gmac = gatewayId;
+          // if (
+          //   beacon.dmac == "BC572913EA8B" ||
+          //   beacon.dmac == "BC572913EA73" ||
+          //   beacon.dmac == "BC572913EA8A"
+          // )
+          beacon.gmac = gatewayId;
           var gmac = gatewayId;
           var dmac = beacon.dmac;
 

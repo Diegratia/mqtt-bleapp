@@ -9,7 +9,7 @@ const floorplans = new Map(); // floorplanId -> { name, scale, gateways: Map(gma
 const gmacToFloorplans = new Map(); // gmac -> Set<floorplanId>
 let interval;
 let refreshInterval;
-const maxSpeed = 0.8;
+const maxSpeed = 1; // Sesuaikan kecepatan maksimum
 const lastBeaconState = new Map(); // dmac -> { x, y, timestamp, primaryFloorplanId }
 const observationWindow = 10;
 
@@ -125,41 +125,35 @@ function isPointValid(point, floorplanId) {
   return true;
 }
 
-function determineBestFloorplan(dmac, positions, currentFloorplanId = null) {
+function determineBestFloorplan(dmac, positions) {
   const validPositions = positions.filter(
     (p) => p.point && isPointValid(p.point, p.floorplanId)
   );
   if (validPositions.length === 0) return null;
 
+  // Pilih floorplan dengan jumlah posisi valid terbanyak atau rata-rata jarak terkecil
   const floorplanStats = new Map();
-  for (const p of validPositions) {
+  validPositions.forEach((p) => {
     if (!floorplanStats.has(p.floorplanId)) {
       floorplanStats.set(p.floorplanId, { count: 0, totalDist: 0 });
     }
     const stats = floorplanStats.get(p.floorplanId);
     stats.count++;
+    // Aproksimasi jarak berdasarkan firstDist (bisa disesuaikan)
     stats.totalDist += p.firstDist;
-  }
+  });
 
   let bestFloorplanId = null;
-  let maxScore = -1;
-
+  let maxCount = -1;
+  let minAvgDist = Infinity;
   for (const [floorplanId, stats] of floorplanStats) {
     const avgDist = stats.totalDist / stats.count;
-
-    // Bobot dasar = jumlah data
-    let score = stats.count;
-
-    // Beri bonus jika floorplan saat ini
-    if (floorplanId === currentFloorplanId) {
-      score += 3; // bisa kamu atur, misalnya 2-5
-    }
-
-    // Tambahkan penalti jarak jika ingin
-    score -= avgDist * 0.01; // penalti kecil berdasarkan jarak
-
-    if (score > maxScore) {
-      maxScore = score;
+    if (
+      stats.count > maxCount ||
+      (stats.count === maxCount && avgDist < minAvgDist)
+    ) {
+      maxCount = stats.count;
+      minAvgDist = avgDist;
       bestFloorplanId = floorplanId;
     }
   }
@@ -228,117 +222,27 @@ function setupRealtimeStream() {
           }
         }
 
+        // Tingkatkan hitungan pengamatan
         beaconState.observationCount++;
         beaconState.positions.push(...positions);
 
+        // Tentukan floorplan terbaik setelah jendela pengamatan
+        let primaryFloorplanId = beaconState.primaryFloorplanId;
         if (beaconState.observationCount >= observationWindow) {
-          const bestFloorplanId = determineBestFloorplan(
-            dmac,
-            beaconState.positions,
-            beaconState.primaryFloorplanId
-          );
-
-          if (!beaconState.primaryFloorplanId) {
-            // Floorplan pertama → wajib stabil dulu
-            if (
-              !beaconState.pendingFloorplan ||
-              beaconState.pendingFloorplan !== bestFloorplanId
-            ) {
-              beaconState.pendingFloorplan = bestFloorplanId;
-              beaconState.pendingCount = 1;
-            } else {
-              beaconState.pendingCount++;
-            }
-
-            if (beaconState.pendingCount >= 5) {
-              beaconState.primaryFloorplanId = bestFloorplanId;
-              beaconState.pendingFloorplan = null;
-              beaconState.pendingCount = 0;
-              console.log(
-                `Beacon ${dmac} menetapkan floorplan pertama: ${bestFloorplanId}`
-              );
-            }
-          } else if (bestFloorplanId !== beaconState.primaryFloorplanId) {
-            // Sudah punya → tunggu kestabilan sebelum pindah
-            if (
-              !beaconState.pendingFloorplan ||
-              beaconState.pendingFloorplan !== bestFloorplanId
-            ) {
-              beaconState.pendingFloorplan = bestFloorplanId;
-              beaconState.pendingCount = 1;
-            } else {
-              beaconState.pendingCount++;
-            }
-
-            if (beaconState.pendingCount >= 5) {
-              console.log(
-                `Beacon ${dmac} pindah floorplan: ${beaconState.primaryFloorplanId} ➜ ${bestFloorplanId}`
-              );
-              beaconState.primaryFloorplanId = bestFloorplanId;
-              beaconState.pendingFloorplan = null;
-              beaconState.pendingCount = 0;
-            }
-          } else {
-            // Tidak berubah → reset pending
-            beaconState.pendingFloorplan = null;
-            beaconState.pendingCount = 0;
-          }
-
-          // jaga tetap slice observasi
-          beaconState.positions = positions.slice(-observationWindow);
-        }
-
-        const primaryFloorplanId = beaconState.primaryFloorplanId;
-
-        // tentukan primary floorplan
-        // let primaryFloorplanId = beaconState.primaryFloorplanId;
-        // if (beaconState.observationCount >= observationWindow) {
-        //   primaryFloorplanId = determineBestFloorplan(
-        //     dmac,
-        //     beaconState.positions
-        //   );
-        //   if (
-        //     primaryFloorplanId &&
-        //     primaryFloorplanId !== beaconState.primaryFloorplanId
-        //   ) {
-        //     beaconState.primaryFloorplanId = primaryFloorplanId;
-        //   }
-        //   beaconState.positions = positions.slice(-observationWindow);
-        // }
-
-        if (beaconState.observationCount >= observationWindow) {
-          const bestFloorplanId = determineBestFloorplan(
+          primaryFloorplanId = determineBestFloorplan(
             dmac,
             beaconState.positions
           );
-
           if (
-            bestFloorplanId &&
-            bestFloorplanId !== beaconState.primaryFloorplanId
+            primaryFloorplanId &&
+            primaryFloorplanId !== beaconState.primaryFloorplanId
           ) {
-            if (
-              !beaconState.pendingFloorplan ||
-              beaconState.pendingFloorplan !== bestFloorplanId
-            ) {
-              beaconState.pendingFloorplan = bestFloorplanId;
-              beaconState.pendingCount = 1;
-            } else {
-              beaconState.pendingCount++;
-            }
-
-            if (beaconState.pendingCount >= 5) {
-              console.log(
-                `Beacon ${dmac} pindah floorplan: ${beaconState.primaryFloorplanId} ➜ ${bestFloorplanId}`
-              );
-              beaconState.primaryFloorplanId = bestFloorplanId;
-              beaconState.pendingFloorplan = null;
-              beaconState.pendingCount = 0;
-            }
-          } else {
-            beaconState.pendingFloorplan = null;
-            beaconState.pendingCount = 0;
+            // console.log(
+            //   `Updated primary floorplan for ${dmac} to ${primaryFloorplanId}`
+            // );
+            beaconState.primaryFloorplanId = primaryFloorplanId;
           }
-
+          // Reset positions setelah penentuan
           beaconState.positions = positions.slice(-observationWindow);
         }
 
@@ -360,7 +264,7 @@ function setupRealtimeStream() {
               );
             }
 
-            // update ke posisi terbaru
+            // Update lastBeaconState dengan posisi terbaru
             const latestPos = validPositions[0];
             if (latestPos) {
               const currentTime = timestamp;
@@ -380,11 +284,9 @@ function setupRealtimeStream() {
 
                 if (speed > maxSpeed) {
                   isValidSpeed = false;
-                  console.log(
-                    `Beacon ${dmac} terlalu cepat ${speed.toFixed(2)} m/s`
-                  );
-                } else {
-                  return;
+                  // console.log(
+                  //   `Beacon ${dmac} terlalu cepat: ${speed.toFixed(2)} m/s`
+                  // );
                 }
               }
 
@@ -395,8 +297,6 @@ function setupRealtimeStream() {
               }
             }
           }
-        } else {
-          return;
         }
       } catch (error) {
         console.error("Error processing beacon:", error, filteredBeacon);

@@ -11,7 +11,7 @@ let interval;
 let refreshInterval;
 const maxSpeed = 0.8;
 const lastBeaconState = new Map(); // dmac -> { x, y, timestamp, primaryFloorplanId }
-const observationWindow = 10;
+const observationWindow = 40;
 
 async function initializeAllFloorplans() {
   try {
