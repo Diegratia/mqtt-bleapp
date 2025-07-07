@@ -18,6 +18,7 @@ async function saveBeaconPositions(positions) {
       request.input("floorplan_id", sql.UniqueIdentifier, pos.floorplanId);
       request.input("pos_x", sql.BigInt, pos.point.x);
       request.input("pos_y", sql.BigInt, pos.point.y);
+      request.input("is_in_restricted_area", sql.BigInt, pos.inRestrictedArea);
       request.input("first_gateway_id", sql.VarChar(12), pos.first);
       request.input("second_gateway_id", sql.VarChar(12), pos.second);
       request.input("first_distance", sql.Float, pos.firstDist);
@@ -26,11 +27,11 @@ async function saveBeaconPositions(positions) {
 
       await request.query(`
         INSERT INTO beacon_positions (
-          id, beacon_id, floorplan_id, pos_x, pos_y,
+          id, beacon_id, floorplan_id, pos_x, pos_y, is_in_restricted_area,
           first_gateway_id, second_gateway_id, first_distance, second_distance,
           timestamp, created_at
         ) VALUES (
-          @id, @beacon_id, @floorplan_id, @pos_x, @pos_y,
+          @id, @beacon_id, @floorplan_id, @pos_x, @pos_y, @is_in_restricted_area,
           @first_gateway_id, @second_gateway_id, @first_distance, @second_distance,
           @timestamp, GETDATE()
         )

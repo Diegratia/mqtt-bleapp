@@ -125,23 +125,6 @@ function isPointValid(point, floorplanId) {
   return true;
 }
 
-function isInRestrictedArea(point, floorplanId) {
-  const floorplan = floorplans.get(floorplanId);
-  if (!floorplan) return false;
-
-  return floorplan.maskedAreas.some((area) => {
-    if (area.restricted_status === "restrict") {
-      try {
-        const polygon = JSON.parse(area.area_shape);
-        return pointInPolygon(point, polygon);
-      } catch {
-        return false;
-      }
-    }
-    return false;
-  });
-}
-
 function determineBestFloorplan(dmac, positions) {
   const validPositions = positions.filter(
     (p) => p.point && isPointValid(p.point, p.floorplanId)
@@ -260,9 +243,11 @@ function setupRealtimeStream() {
           const floorplan = floorplans.get(primaryFloorplanId);
           if (floorplan) {
             const validPositions = positions.filter(
-              (p) => p.floorplanId === primaryFloorplanId && p.point
+              (p) =>
+                p.floorplanId === primaryFloorplanId &&
+                p.point &&
+                isPointValid(p.point, primaryFloorplanId)
             );
-
             const latestPos = validPositions[0];
 
             if (latestPos) {
@@ -301,22 +286,11 @@ function setupRealtimeStream() {
 
                 if (validPositions.length > 0) {
                   client.publish(
-                    `tracking/${primaryFloorplanId}`,
+                    `${primaryFloorplanId}`,
                     JSON.stringify(validPositions),
                     { qos: 1 }
                   );
                   // console.log("validPositions", validPositions);
-                }
-                // Publish ke topik alarm jika ada beacon di area restrict
-                const alarmPositions = validPositions.filter((p) =>
-                  isInRestrictedArea(p.point, primaryFloorplanId)
-                );
-                if (alarmPositions.length > 0) {
-                  client.publish(
-                    `alarm/${primaryFloorplanId}`,
-                    JSON.stringify(alarmPositions),
-                    { qos: 1 }
-                  );
                 }
               } else {
                 return;
@@ -341,7 +315,9 @@ function setupRealtimeStream() {
           floorplan.gateways,
           floorplan.scale
         );
-        const valid = positions.filter((p) => p.point);
+        const valid = positions.filter(
+          (p) => p.point && isPointValid(p.point, floorplanId)
+        );
         if (valid.length > 0) await saveBeaconPositions(valid);
       }
 
@@ -420,7 +396,7 @@ function generateBeaconPointsBetweenReaders(
     //   )}m) ➜ ratio ${ratioRiyal.toFixed(2)} → (${point.x}, ${point.y})`
     // );
 
-    return point;
+    if (isPointValid(point, floorplanId)) return point;
   }
   return null;
 }
@@ -447,9 +423,9 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
           scale,
           floorplanId
         );
-
+        var oldkord = point;
         if (point) {
-          const inRestrictedArea = isInRestrictedArea(point, floorplanId);
+          //
           pairs.push({
             beaconId: dmac,
             pair: `${first.gmac}_${second.gmac}`,
@@ -458,7 +434,6 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
             firstDist: first.distance,
             secondDist: second.distance,
             point,
-            inRestrictedArea,
             firstReaderCoord: { id: first.gmac, ...start },
             secondReaderCoord: { id: second.gmac, ...end },
             time: new Date(time).toISOString(),

@@ -71,6 +71,7 @@ async function initializeDatabase(testTableName = null) {
         floorplan_id UNIQUEIDENTIFIER NOT NULL,
         pos_x BIGINT NOT NULL,
         pos_y BIGINT NOT NULL,
+        is_in_restricted_area BIT NOT NULL,
         first_gateway_id VARCHAR(12) NOT NULL,
         second_gateway_id VARCHAR(12) NOT NULL,
         first_distance FLOAT NOT NULL,
