@@ -45,4 +45,79 @@ async function saveBeaconPositions(positions) {
   }
 }
 
-module.exports = { saveBeaconPositions };
+async function saveAlarmTriggers(positions) {
+  if (!positions || positions.length === 0) {
+    return;
+  }
+
+  try {
+    const { db } = getDbPool();
+
+    for (const pos of positions) {
+      const request = db.request();
+      await request
+        .input("id", sql.UniqueIdentifier, uuidv4())
+        .input("beacon_id", pos.beaconId)
+        .input("floorplan_id", pos.floorplanId)
+        .input("pos_x", pos.point.x)
+        .input("pos_y", pos.point.y)
+        .input("is_in_restricted_area", pos.inRestrictedArea)
+        .input("first_gateway_id", pos.first)
+        .input("second_gateway_id", pos.second)
+        .input("first_distance", pos.firstDist)
+        .input("second_distance", pos.secondDist)
+        .input("trigger_time", new Date(pos.time))
+        .input("is_active", sql.Bit, true).query(`
+          INSERT INTO alarm_triggers (id, beacon_id, floorplan_id, pos_x, pos_y, is_in_restricted_area, first_gateway_id, second_gateway_id, first_distance, second_distance, trigger_time, is_active)
+          VALUES (@id, @beacon_id, @floorplan_id, @pos_x, @pos_y, @is_in_restricted_area, @first_gateway_id, @second_gateway_id, @first_distance, @second_distance, @trigger_time, @is_active)
+        `);
+    }
+
+    console.log(`Saved ${positions.length} alarm triggers to alarm_triggers`);
+  } catch (error) {
+    console.error(
+      `Failed to save alarm triggers to database: ${error.message}`
+    );
+    throw error;
+  }
+}
+
+async function checkActiveAlarm(dmac) {
+  try {
+    const { db } = getDbPool();
+    const result = await db.request().input("beacon_id", sql.VarChar(12), dmac)
+      .query(`
+        SELECT TOP 1 * FROM alarm_triggers
+        WHERE beacon_id = @beacon_id AND is_active = 1
+        ORDER BY trigger_time DESC
+      `);
+    return result.recordset.length > 0 ? result.recordset[0] : null;
+  } catch (error) {
+    console.error(`Failed to check active alarm for ${dmac}: ${error.message}`);
+    throw error;
+  }
+}
+
+async function deactivateAlarm(dmac) {
+  try {
+    const { db } = getDbPool();
+    const result = await db.request().input("beacon_id", sql.VarChar(12), dmac)
+      .query(`
+        UPDATE alarm_triggers
+        SET is_active = 0
+        WHERE beacon_id = @beacon_id AND is_active = 1
+      `);
+    console.log(`Deactivated alarm for beacon ${dmac}`);
+    return result.rowsAffected[0] > 0;
+  } catch (error) {
+    console.error(`Failed to deactivate alarm for ${dmac}: ${error.message}`);
+    throw error;
+  }
+}
+
+module.exports = {
+  saveBeaconPositions,
+  saveAlarmTriggers,
+  checkActiveAlarm,
+  deactivateAlarm,
+};

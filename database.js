@@ -81,6 +81,25 @@ async function initializeDatabase(testTableName = null) {
       );
     `);
 
+    await db.request().query(`
+      IF NOT EXISTS (SELECT * FROM sysobjects WHERE name = 'alarm_triggers' AND xtype = 'U')
+      CREATE TABLE alarm_triggers (
+      id UNIQUEIDENTIFIER PRIMARY KEY,
+      beacon_id VARCHAR(12) NOT NULL,
+      floorplan_id UNIQUEIDENTIFIER NOT NULL,
+      pos_x BIGINT NOT NULL,
+      pos_y BIGINT NOT NULL,
+      is_in_restricted_area BIT NOT NULL,
+      first_gateway_id VARCHAR(12) NOT NULL,
+      second_gateway_id VARCHAR(12) NOT NULL,
+      first_distance FLOAT NOT NULL,
+      second_distance FLOAT NOT NULL,
+      trigger_time DATETIME NOT NULL,
+      is_active BIT NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT GETDATE()
+      );
+    `);
+
     if (testTableName) {
       globalpooldb.testTable = testTableName;
       await db.request().query(`
