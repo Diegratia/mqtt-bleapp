@@ -1,0 +1,219 @@
+// // g1
+// const pos_x1 = 0;
+// const pos_y1 = 0;
+// const pos_px_x1 = 10;
+// const pos_px_y1 = 20;
+
+// // g2
+// const pos_x2 = 0;
+// const pos_y2 = 0;
+// const pos_px_x2 = 30;
+// const pos_px_y2 = 40;
+
+// const scale = 1.2;
+
+// // konversi
+// const gate1_x = pos_px_x1 * scale;
+// const gate1_y = pos_px_y1 * scale;
+
+// const gate2_x = pos_px_x2 * scale;
+// const gate2_y = pos_px_y2 * scale;
+
+// // jarak
+// const delta_x = gate2_x - gate1_x;
+// const delta_y = gate2_y - gate1_y;
+
+// const jarak_meter = Math.hypot(delta_x, delta_y); // √(76² + 76²)
+
+// const jarak_pixel = Math.hypot(pos_px_x2 - pos_px_x1, pos_px_y2 - pos_px_y1);
+
+// console.log(` ${jarak_meter.toFixed(2)} meter`);
+// console.log(` ${jarak_pixel.toFixed(2)} pixel`);
+
+// Data posisi gateway dalam meter
+// const pos_x1 = 0;
+// const pos_y1 = 0;
+// const pos_x2 = 0;
+// const pos_y2 = 0;
+
+// // Posisi gateway dalam pixel
+// const pos_px_x1 = 10;
+// const pos_px_y1 = 20;
+// const pos_px_x2 = 30;
+// const pos_px_y2 = 40;
+
+// // Skala konversi meter ke pixel
+// const scaleMeterToPixel = 10;
+
+// // Hitung jarak antar gateway dalam pixel dan meter
+// const delta_px_x = pos_px_x2 - pos_px_x1;
+// const delta_px_y = pos_px_y2 - pos_px_y1;
+// const jarak_gateway_pixel = Math.hypot(delta_px_x, delta_px_y);
+// const jarak_gateway_meter = jarak_gateway_pixel / scaleMeterToPixel;
+
+// console.log(
+//   `Jarak antar gateway dalam meter: ${jarak_gateway_meter.toFixed(2)} m`
+// );
+
+// // Data jarak dari gateway ke beacon (dalam meter)
+// const A = 7; // jarak dari gateway 1 ke beacon
+// const B = 7; // jarak dari gateway 2 ke beacon
+
+// // Konversi jarak ke pixel
+// const A_pixel = A * scaleMeterToPixel;
+// const B_pixel = B * scaleMeterToPixel;
+
+// // --- Pendekatan proyeksi titik ke garis ---
+
+// // hitung vektor g1 ke g2
+// const dx = pos_px_x2 - pos_px_x1;
+// const dy = pos_px_y2 - pos_px_y1;
+
+// // Hitung vektor tegak lurus (rotasi 90 derajat)
+// const perpX = -dy;
+// const perpY = dx;
+
+// // Normalisasi vektor tegak lurus
+// const length = Math.hypot(perpX, perpY);
+// const unitPerpX = perpX / length;
+// const unitPerpY = perpY / length;
+
+// // Tempatkan posisi tag di garis tegak lurus dari gateway 1
+// // Jarak dari gateway 1 ke tag dalam pixel
+// const jarakTagPixel = A_pixel; // sesuai jarak dari gateway ke tag
+
+// const tagX = pos_px_x1 + unitPerpX * jarakTagPixel;
+// const tagY = pos_px_y1 + unitPerpY * jarakTagPixel;
+
+// console.log(
+//   `Posisi tag di garis tegak lurus: (${tagX.toFixed(2)}, ${tagY.toFixed(2)})`
+// );
+
+// // --- Proyeksi posisi acak ke garis ---
+
+// // Misal posisi awal tag acak (contoh)
+// const posisiAwal = { x: 50, y: 80 }; // posisi acak
+
+// // Posisi gateway sebagai titik referensi
+// const G = { x: pos_px_x1, y: pos_px_y1 };
+
+// // Posisi gateway kedua sebagai garis
+// const G2 = { x: pos_px_x2, y: pos_px_y2 };
+
+// // Vektor dari gateway 1 ke gateway 2
+// const vx = G2.x - G.x;
+// const vy = G2.y - G.y;
+
+// // Vektor dari gateway 1 ke posisi awal
+// const px = posisiAwal.x - G.x;
+// const py = posisiAwal.y - G.y;
+
+// // Dot product
+// const dot = px * vx + py * vy;
+
+// // Panjang kuadrat garis G-G2
+// const lenSq = vx * vx + vy * vy;
+
+// // Parameter t untuk proyeksi
+// const t = dot / lenSq;
+
+// // Titik proyeksi di garis
+// const projX = G.x + t * vx;
+// const projY = G.y + t * vy;
+
+// console.log(
+//   `Posisi akhir setelah proyeksi: (${projX.toFixed(2)}, ${projY.toFixed(2)})`
+// );
+
+// Data posisi gateway dalam meter
+const pos_x1 = 0;
+const pos_y1 = 0;
+const pos_x2 = 0;
+const pos_y2 = 0;
+
+
+const pos_px_x1 = 100;
+const pos_px_y1 = 100;
+const pos_px_x2 = 400;
+const pos_px_y2 = 300;
+
+
+// Skala konversi meter ke pixel
+const scaleMeterToPixel = 3.8;
+
+// Data jarak dari gateway ke beacon (dalam meter)
+const A = 6.12; // jarak dari gateway 1 ke beacon
+const B = 7.14; // jarak dari gateway 2 ke beacon
+
+// Konversi jarak ke pixel
+const A_pixel = A * scaleMeterToPixel;
+const B_pixel = B * scaleMeterToPixel;
+
+// Posisi target (misalnya posisi beacon)
+const posisiTarget = { x: 200, y: 20 }; // Ganti sesuai data Anda
+
+// 1. Hitung jarak dari posisi target ke semua gateway
+const gateways = [
+  { x: pos_px_x1, y: pos_px_y1 },
+  { x: pos_px_x2, y: pos_px_y2 },
+];
+
+const jarakGatewayArray = gateways.map((g) => {
+  const dx = g.x - posisiTarget.x;
+  const dy = g.y - posisiTarget.y;
+  return { gateway: g, jarak: Math.hypot(dx, dy) };
+});
+
+// 2. Urutkan dan pilih dua gateway terdekat
+jarakGatewayArray.sort((a, b) => a.jarak - b.jarak);
+const gateway1 = jarakGatewayArray[0].gateway;
+const gateway2 = jarakGatewayArray[1].gateway;
+
+// 3. Hitung vektor dari gateway1 ke gateway2
+const dx = gateway2.x - gateway1.x;
+const dy = gateway2.y - gateway1.y;
+
+// 4. Hitung normal (tegak lurus)
+const perpX = -dy;
+const perpY = dx;
+const length = Math.hypot(perpX, perpY);
+const unitPerpX = perpX / length;
+const unitPerpY = perpY / length;
+
+// 5. Gunakan kedua gateway untuk menentukan garis dan proyeksi
+// (Tidak peduli posisi tag di belakang atau di depan)
+
+// Hitung posisi proyeksi dari target ke garis
+const dxTarget = posisiTarget.x - gateway1.x;
+const dyTarget = posisiTarget.y - gateway1.y;
+const t = (dxTarget * dx + dyTarget * dy) / (dx * dx + dy * dy);
+const projX = gateway1.x + t * dx;
+const projY = gateway1.y + t * dy;
+
+console.log(`Dua gateway terdekat:`);
+console.log(`Gateway 1: (${gateway1.x}, ${gateway1.y})`);
+console.log(`Gateway 2: (${gateway2.x}, ${gateway2.y})`);
+console.log(
+  `Posisi proyeksi di garis: (${projX.toFixed(2)}, ${projY.toFixed(2)})`
+);
+
+// 6. (Opsional) Hitung jarak dari posisi target ke garis untuk memastikan
+function jarakTitikKeGaris(px, py, x1, y1, x2, y2) {
+  const numerator = Math.abs((x2 - x1) * (y1 - py) - (x1 - px) * (y2 - y1));
+  const denominator = Math.hypot(x2 - x1, y2 - y1);
+  return numerator / denominator;
+}
+const jarakKeGaris = jarakTitikKeGaris(
+  posisiTarget.x,
+  posisiTarget.y,
+  gateway1.x,
+  gateway1.y,
+  gateway2.x,
+  gateway2.y
+);
+console.log(`Jarak posisi ke garis: ${jarakKeGaris.toFixed(2)} pixel`);
+if (jarakKeGaris < 1) {
+  console.log("Posisi berada di garis tegak lurus");
+} else {
+  console.log("Posisi tidak tepat di garis");
+}

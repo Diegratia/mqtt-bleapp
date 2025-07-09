@@ -29,9 +29,9 @@ async function initializeDatabase(testTableName = null) {
     });
 
     await pool.request()
-      .query(`IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'mqttble_app')
+      .query(`IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'mqttble_app2')
       BEGIN
-        CREATE DATABASE mqttble_app;
+        CREATE DATABASE mqttble_app2;
       END
     `);
 
@@ -63,8 +63,6 @@ async function initializeDatabase(testTableName = null) {
         temp FLOAT,
         time DATETIME NOT NULL,
         meter FLOAT,
-        calc_dist FLOAT, 
-        gmac VARCHAR(12) NOT NULL,
         measure FLOAT,
         FOREIGN KEY (gateway_id) REFERENCES gateways(id)
       );
@@ -85,8 +83,6 @@ async function initializeDatabase(testTableName = null) {
           temp FLOAT,
           time DATETIME NOT NULL,
           meter FLOAT,
-          calc_dist FLOAT,
-          gmac VARCHAR(12) NOT NULL,
           measure FLOAT,
           FOREIGN KEY (gateway_id) REFERENCES gateways(id)
         );
