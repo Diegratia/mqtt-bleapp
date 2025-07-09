@@ -56,4 +56,4 @@ async function fetchDataFromDatabase() {
 
 fetchDataFromDatabase();
 
-// setInterval(fetchDataFromDatabase, 2000);
+setInterval(fetchDataFromDatabase, 2000);

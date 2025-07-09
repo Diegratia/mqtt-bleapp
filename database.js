@@ -7,7 +7,7 @@ const globalpooldb = {
 const dbConfig = {
   user: "sa",
   password: "Password_123#",
-  server: "localhost",
+  server: "192.168.1.116",
   database: "mqttble_app",
   options: {
     encrypt: false,
