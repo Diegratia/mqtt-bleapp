@@ -1,10 +1,9 @@
-// index.js
 const express = require("express");
 const cors = require("cors");
 const { initializeDatabase } = require("./database");
 // const { startMqttClient } = require("./mqtt");
 const {
-  setupStream,
+  setupRealtimeStream,
   generateBeaconPositions,
   initializeAllFloorplans,
   initializeRealtimeData,
@@ -13,7 +12,7 @@ const path = require("path");
 const minimist = require("minimist");
 
 const app = express();
-const port = 3300; // Sesuaikan dengan log
+const port = 3300; 
 
 const args = minimist(process.argv.slice(2));
 const testTableName = args.t;
@@ -30,7 +29,7 @@ async function startServer() {
   try {
     await initializeDatabase(testTableName);
     await initializeAllFloorplans();
-    setupStream();
+    setupRealtimeStream();
     app.listen(port, () => {
       console.log(`running at http://localhost:${port}`);
     });
