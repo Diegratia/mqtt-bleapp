@@ -1,62 +1,162 @@
-// realtime.js
 const { startMqttClient } = require("./mqtt");
-const { fetchDynamicData } = require("./database");
+const { fetchAllFloorplans } = require("./database");
 
 let realtimeBeaconPairs = new Map();
-const timeTolerance = 10000;
+const timeTolerance = 2000;
 let client;
+const floorplans = new Map();
+const gmacToFloorplan = new Map();
+let interval;
 
-async function initializeRealtimeData(floorplanId) {
+async function initializeAllFloorplans() {
   try {
-    const data = await fetchDynamicData(floorplanId);
-    console.log(`Initialized data for FloorplanId: ${floorplanId}`, {
-      gateways: [...data.gateways],
-      scale: data.scale,
-    });
-    return data;
+    const {
+      floorplans: floorplanData,
+      gateways,
+      maskedAreas,
+    } = await fetchAllFloorplans();
+    floorplans.clear();
+    gmacToFloorplan.clear();
+
+    for (const { floorplan_id, name, scale } of floorplanData) {
+      floorplans.set(floorplan_id, {
+        name,
+        scale,
+        gateways: new Map(),
+        maskedAreas: [],
+      });
+    }
+
+    for (const { floorplan_id, gmac, pos_px_x, pos_px_y } of gateways) {
+      floorplans
+        .get(floorplan_id)
+        .gateways.set(gmac, { x: Number(pos_px_x), y: Number(pos_px_y) });
+      if (!gmacToFloorplan.has(gmac)) {
+        gmacToFloorplan.set(gmac, floorplan_id);
+      }
+      // else if (gmacToFloorplan.get(gmac) !== floorplan_id) {
+      //   console.error(`GMAC ${gmac} associated with multiple floorplans`);
+      // }
+    }
+
+    for (const { floorplan_id, area_shape, restricted_status } of maskedAreas) {
+      if (floorplans.has(floorplan_id) && area_shape) {
+        floorplans
+          .get(floorplan_id)
+          .maskedAreas.push({ area_shape, restricted_status });
+      }
+    }
+
+    return floorplans;
   } catch (error) {
-    console.error("Failed to initialize realtime data:", error);
+    console.error("inisialisasi floorplan gagal:", error);
     throw error;
   }
 }
 
-function setupRealtimeStream(floorplanId) {
+function setupStream() {
   if (!client) {
-    client = startMqttClient((beacon) => {
-      console.log("Received MQTT beacon:", beacon);
-      const { dmac, gmac, calcDist: calcDistStr, time: timeStr } = beacon;
-      const calc_dist = parseFloat(calcDistStr);
-      const timestamp = new Date(timeStr.replace(",", ".")).getTime();
-
-      // Bersihkan data lama
-      for (let [dmacKey, timestamps] of realtimeBeaconPairs) {
-        for (let [t, distances] of timestamps) {
-          if (timestamp - t > timeTolerance) timestamps.delete(t);
+    client = startMqttClient((topic, beacon) => {
+      try {
+        const { dmac, gmac, calcDist, time } = beacon;
+        const calc_dist = parseFloat(calcDist);
+        const timestamp = new Date(time.replace(",", ".")).getTime();
+        const floorplanId = gmacToFloorplan.get(gmac);
+        if (!floorplanId) {
+          console.error(`floorplan ot found ${gmac}`);
+          return;
         }
-        if (timestamps.size === 0) realtimeBeaconPairs.delete(dmacKey);
-      }
 
-      if (!realtimeBeaconPairs.has(dmac))
-        realtimeBeaconPairs.set(dmac, new Map());
-      const dmacData = realtimeBeaconPairs.get(dmac);
-
-      let closestTime = null;
-      let minDiff = Infinity;
-      for (let [t, distances] of dmacData) {
-        const diff = Math.abs(timestamp - t);
-        if (diff < minDiff && diff <= timeTolerance) {
-          minDiff = diff;
-          closestTime = t;
+        if (!realtimeBeaconPairs.has(floorplanId)) {
+          realtimeBeaconPairs.set(floorplanId, new Map());
         }
+        const floorplanBeacons = realtimeBeaconPairs.get(floorplanId);
+
+        if (!floorplanBeacons.has(dmac)) {
+          floorplanBeacons.set(dmac, new Map());
+        }
+        const dmacData = floorplanBeacons.get(dmac);
+
+        let closestTime = null;
+        let minDiff = Infinity;
+        for (let [t, distances] of dmacData) {
+          const diff = Math.abs(timestamp - t);
+          if (diff < minDiff && diff <= timeTolerance) {
+            minDiff = diff;
+            closestTime = t;
+          }
+        }
+
+        if (!closestTime) closestTime = timestamp;
+        if (!dmacData.has(closestTime)) dmacData.set(closestTime, {});
+        dmacData.get(closestTime)[gmac] = calc_dist;
+        // interval = setInterval(() => {
+        //   for (const [floorplanId, floorplanBeacons] of realtimeBeaconPairs) {
+        //     const floorplan = floorplans.get(floorplanId);
+        //     if (floorplan) {
+        //       const positions = generateBeaconPositions(floorplanId, floorplan.gateways, floorplan.scale);
+        //       if (positions.length > 0) {
+        //         client.publish(`${floorplanId}`, JSON.stringify(positions), { qos: 1 }, ...);
+        //       }
+        //     }
+        //   }
+        // }, 5000);
+        const floorplan = floorplans.get(floorplanId);
+        if (floorplan) {
+          const positions = generateBeaconPositions(
+            floorplanId,
+            floorplan.gateways,
+            floorplan.scale
+          );
+          if (positions.length > 0) {
+            client.publish(
+              `${floorplanId}`.toUpperCase(),
+              JSON.stringify(positions),
+              { qos: 1 },
+              (err) => {
+                if (err) {
+                  console.error(`publish fail`, err);
+                } else {
+                  // console.log(
+                  //   `Published positions to ${floorplanId}:`,
+                  //   positions
+                  // );
+                }
+              }
+            );
+          } else {
+            // console.log(`No positions generated for floorplan ${floorplanId}`);
+          }
+        }
+      } catch (error) {
+        console.error(error, beacon);
       }
-
-      if (!closestTime) closestTime = timestamp;
-      if (!dmacData.has(closestTime)) dmacData.set(closestTime, {});
-      dmacData.get(closestTime)[gmac] = calc_dist;
-
-      console.log("Updated realtimeBeaconPairs:", [...realtimeBeaconPairs]);
     });
   }
+
+  if (interval) {
+    clearInterval(interval);
+  }
+
+  interval = setInterval(() => {
+    const now = Date.now();
+    // const timestamp = new Date(time.replace(",", ".")).getTime();
+    for (const [floorplanId, floorplanBeacons] of realtimeBeaconPairs) {
+      for (const [dmac, timestamps] of floorplanBeacons) {
+        for (const [t] of timestamps) {
+          if (now - t > timeTolerance) {
+            timestamps.delete(t);
+          }
+        }
+        if (timestamps.size === 0) {
+          floorplanBeacons.delete(dmac);
+        }
+      }
+      if (floorplanBeacons.size === 0) {
+        realtimeBeaconPairs.delete(floorplanId);
+      }
+    }
+  }, timeTolerance);
 }
 
 function generateBeaconPointsBetweenReaders(
@@ -85,9 +185,9 @@ function generateBeaconPointsBetweenReaders(
   const perpX = -uy;
   const perpY = ux;
 
-  const spreadLeft = 1;
-  const spreadRight = 1;
-  const spreadAlong = 1;
+  const spreadLeft = 10;
+  const spreadRight = 10;
+  const spreadAlong = 10;
   const offsetPerp =
     Math.random() * (spreadRight + spreadLeft) - (spreadRight + spreadLeft) / 2;
   const offsetAlong = Math.random() * spreadAlong - spreadAlong / 2;
@@ -98,42 +198,19 @@ function generateBeaconPointsBetweenReaders(
   return { x, y };
 }
 
-// function calculateDistanceInfo(start, end, scale) {
-//   const deltaX = end.x - start.x;
-//   const deltaY = end.y - start.y;
-//   const jarakPixel = Math.hypot(deltaX, deltaY);
-//   const jarakMeter = jarakPixel * scale;
-
-//   return {
-//     jarakPixel: +jarakPixel.toFixed(2),
-//     jarakMeter: +jarakMeter.toFixed(2),
-//   };
-// }
-
 function generateBeaconPositions(floorplanId, gateways, scale) {
-  console.log("Generating beacon positions with:", {
-    floorplanId,
-    gateways: [...gateways],
-    scale,
-    beaconPairs: [...realtimeBeaconPairs],
-  });
-
   const pairs = [];
+  const floorplanBeacons = realtimeBeaconPairs.get(floorplanId) || new Map();
 
-  for (let [dmac, timestamps] of realtimeBeaconPairs) {
+  for (let [dmac, timestamps] of floorplanBeacons) {
     for (let [time, distances] of timestamps) {
-      console.log(`Processing beacon ${dmac} at time ${time}:`, distances);
-      // Dapatkan semua reader dengan jarak
       const readerDistances = Array.from(gateways.keys())
         .map((gmac) => ({
           gmac,
           distance: distances[gmac] !== undefined ? distances[gmac] : Infinity,
         }))
-        .sort((a, b) => a.distance - b.distance); // Urutkan berdasarkan jarak terdekat
+        .sort((a, b) => a.distance - b.distance);
 
-      console.log(`Sorted reader distances for ${dmac}:`, readerDistances);
-
-      // Ambil dua reader terdekat dengan jarak valid
       const validReaders = readerDistances.filter(
         (r) => r.distance !== Infinity
       );
@@ -142,8 +219,6 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
         const secondReader = validReaders[1].gmac;
         const firstDist = validReaders[0].distance;
         const secondDist = validReaders[1].distance;
-
-        console.log(`Pairing closest readers: ${firstReader}, ${secondReader}`);
 
         const start = gateways.get(firstReader);
         const end = gateways.get(secondReader);
@@ -154,11 +229,6 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
           secondDist,
           scale
         );
-        // const { jarakPixel, jarakMeter } = calculateDistanceInfo(
-        //   start,
-        //   end,
-        //   scale
-        // );
 
         pairs.push({
           beaconId: dmac,
@@ -167,8 +237,6 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
           second: secondReader,
           firstDist: firstDist,
           secondDist: secondDist,
-          // jarakPixel,
-          // jarakMeter,
           point,
           firstReaderCoord: { id: firstReader, ...start },
           secondReaderCoord: { id: secondReader, ...end },
@@ -179,12 +247,11 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
     }
   }
 
-  console.log("Generated beacon positions:", pairs);
   return pairs;
 }
 
 module.exports = {
-  setupRealtimeStream,
+  setupStream,
   generateBeaconPositions,
-  initializeRealtimeData,
+  initializeAllFloorplans,
 };
