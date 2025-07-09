@@ -161,7 +161,7 @@ async function fetchAllFloorplans() {
       WHERE fd.type = 'blereader' AND fd.status != 0 AND br.status != 0
     `);
     const maskedAreaResult = await db.request().query(`
-      SELECT fp.id AS floorplan_id, fma.area_shape, fma.restricted_status
+      SELECT fp.id AS floorplan_id, fma.name, fma.area_shape, fma.restricted_status
       FROM floorplan_masked_area fma
       JOIN mst_floorplan fp ON fma.floor_id = fp.floor_id
       WHERE fma.status != 0 AND fp.status != 0

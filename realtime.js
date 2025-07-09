@@ -16,7 +16,7 @@ let refreshInterval;
 const maxSpeed = 0.2;
 const lastBeaconState = new Map(); // dmac -> { x, y, timestamp, primaryFloorplanId }
 const observationWindow = 10;
-const alarmCooldown = 2 * 60 * 1000;
+const alarmCooldown = 1 * 60 * 1000;
 
 async function initializeAllFloorplans() {
   try {
@@ -50,7 +50,12 @@ async function initializeAllFloorplans() {
       }
     }
 
-    for (const { floorplan_id, area_shape, restricted_status } of maskedAreas) {
+    for (const {
+      floorplan_id,
+      area_shape,
+      restricted_status,
+      name,
+    } of maskedAreas) {
       if (floorplans.has(floorplan_id) && area_shape) {
         const polygonWithIds = JSON.parse(area_shape);
         const polygon = polygonWithIds.map(({ x_px, y_px }) => ({
@@ -62,6 +67,7 @@ async function initializeAllFloorplans() {
           floorplans.get(floorplan_id).maskedAreas.push({
             area_shape: JSON.stringify(polygon),
             restricted_status,
+            name,
           });
         }
       }
@@ -126,6 +132,7 @@ function isPointValid(point, floorplanId) {
   const hasNonRestrict = maskedAreas.some(
     (a) => a.restricted_status === "non-restrict"
   );
+
   if (hasNonRestrict) {
     return maskedAreas.some((area) => {
       if (area.restricted_status === "non-restrict") {
@@ -138,8 +145,9 @@ function isPointValid(point, floorplanId) {
       }
       return false;
     });
+  } else {
+    return true;
   }
-  return true;
 }
 
 function isInRestrictedArea(point, floorplanId) {
@@ -208,19 +216,23 @@ async function handleAlarmTrigger(positions, floorplanId, timestamp) {
     const { beaconId: dmac } = pos;
     const currentTime = timestamp;
 
-    // Cek apakah ada alarm aktif di database
+    // cek db
     const activeAlarm = await checkActiveAlarm(dmac);
     if (
       !activeAlarm ||
       currentTime - new Date(activeAlarm.trigger_time).getTime() >=
         alarmCooldown
     ) {
-      // Simpan alarm trigger dengan status aktif
       pos.is_active = true;
       await saveAlarmTriggers([pos]);
 
-      // Publish ke topik alarm
-      client.publish(`alarm/${floorplanId}`, JSON.stringify([pos]), { qos: 1 });
+      client.publish(
+        `alarm/topic`,
+        JSON.stringify([
+          { ...pos, floorplanName: floorplans.get(floorplanId)?.name },
+        ]),
+        { qos: 1 }
+      );
 
       console.log(
         `Alarm triggered for beacon ${dmac} on floorplan ${floorplanId}`
