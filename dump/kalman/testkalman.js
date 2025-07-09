@@ -3,7 +3,7 @@ var mqtt = require("mqtt");
 const { KalmanFilter } = require("kalman-filter");
 var Topic = "test/topic";
 var Broker_URL = "mqtt://192.168.1.116:1888";
-var checkkalmanlimit = 20;
+var checkkalmanlimit = 40;
 var scale = 3.8;
 
 const kalmanFilters = new Map();
@@ -46,13 +46,8 @@ function startMqttClient(messageCallback) {
       if (data.obj) {
         data.obj.forEach((beacon) => {
           if (beacon.type !== 4) return;
-          if (
-            beacon.dmac == "BC572913EA8B" ||
-            beacon.dmac == "BC572913EA73"
-            // beacon.dmac == "BC572913EA8A" ||
-            // beacon.dmac == "BC572905DB85"
-          )
-            beacon.gmac = gatewayId;
+
+          beacon.gmac = gatewayId;
           var gmac = gatewayId;
           var dmac = beacon.dmac;
 
@@ -85,16 +80,18 @@ function startMqttClient(messageCallback) {
           const filteredRssiLast =
             kalmanfilterrssi[kalmanfilterrssi.length - 1];
           const filteredRssiMean = mean(kalmanfilterrssi);
-          const filteredRssiModus = modus(kalmanfilterrssi);
+          const filteredRssiModus = findMostFrequent(kalmanfilterrssi);
           const filteredRssiTrimmed = trimmedMean(kalmanfilterrssi);
 
-          const filteredRssi = filteredRssiModus;
+          // Pilih yang ingin digunakan untuk perhitungan
+          const filteredRssi = filteredRssiLast;
 
-          // console.log(`DMAC ${dmac}`);
-          // console.log("Kalman (last):", filteredRssiLast);
-          // console.log("Kalman (mean):", filteredRssiMean);
-          // console.log("Kalman (modus):", filteredRssiModus);
-          // console.log("Kalman (trimmedMean):", filteredRssiTrimmed);
+          // Debug output
+          console.log(`DMAC ${dmac}`);
+          console.log("Kalman (last):", filteredRssiLast);
+          console.log("Kalman (mean):", filteredRssiMean);
+          console.log("Kalman (modus):", filteredRssiModus);
+          console.log("Kalman (trimmedMean):", filteredRssiTrimmed);
 
           var refpower = beacon.refpower || measure;
           var cal = calculateDistance(filteredRssi, refpower, 2, 5);
@@ -108,7 +105,6 @@ function startMqttClient(messageCallback) {
           };
           collectionRssiGate[gmac][dmac] = [];
           messageCallback(topic, filteredBeacon);
-          // console.log(filteredBeacon);
         });
       }
     } catch (error) {
@@ -141,7 +137,7 @@ function mean(arr) {
   return arr.reduce((a, b) => a + b, 0) / arr.length;
 }
 
-function modus(arr) {
+function findMostFrequent(arr) {
   const freq = {};
   arr.forEach((val) => (freq[val] = (freq[val] || 0) + 1));
   return Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0];

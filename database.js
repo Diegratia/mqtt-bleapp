@@ -71,12 +71,32 @@ async function initializeDatabase(testTableName = null) {
         floorplan_id UNIQUEIDENTIFIER NOT NULL,
         pos_x BIGINT NOT NULL,
         pos_y BIGINT NOT NULL,
+        is_in_restricted_area BIT NOT NULL,
         first_gateway_id VARCHAR(12) NOT NULL,
         second_gateway_id VARCHAR(12) NOT NULL,
         first_distance FLOAT NOT NULL,
         second_distance FLOAT NOT NULL,
         timestamp DATETIME NOT NULL,
         created_at DATETIME DEFAULT GETDATE()
+      );
+    `);
+
+    await db.request().query(`
+      IF NOT EXISTS (SELECT * FROM sysobjects WHERE name = 'alarm_triggers' AND xtype = 'U')
+      CREATE TABLE alarm_triggers (
+      id UNIQUEIDENTIFIER PRIMARY KEY,
+      beacon_id VARCHAR(12) NOT NULL,
+      floorplan_id UNIQUEIDENTIFIER NOT NULL,
+      pos_x BIGINT NOT NULL,
+      pos_y BIGINT NOT NULL,
+      is_in_restricted_area BIT NOT NULL,
+      first_gateway_id VARCHAR(12) NOT NULL,
+      second_gateway_id VARCHAR(12) NOT NULL,
+      first_distance FLOAT NOT NULL,
+      second_distance FLOAT NOT NULL,
+      trigger_time DATETIME NOT NULL,
+      is_active BIT NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT GETDATE()
       );
     `);
 
@@ -141,7 +161,7 @@ async function fetchAllFloorplans() {
       WHERE fd.type = 'blereader' AND fd.status != 0 AND br.status != 0
     `);
     const maskedAreaResult = await db.request().query(`
-      SELECT fp.id AS floorplan_id, fma.area_shape, fma.restricted_status
+      SELECT fp.id AS floorplan_id, fma.name, fma.area_shape, fma.restricted_status
       FROM floorplan_masked_area fma
       JOIN mst_floorplan fp ON fma.floor_id = fp.floor_id
       WHERE fma.status != 0 AND fp.status != 0

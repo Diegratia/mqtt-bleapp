@@ -1,22 +1,17 @@
 const { startMqttClient } = require("./mqtt");
 const { fetchAllFloorplans } = require("./database");
-const {
-  saveBeaconPositions,
-  saveAlarmTriggers,
-  checkActiveAlarm,
-} = require("./beaconStorage");
+const { saveBeaconPositions } = require("./beaconStorage");
 
 let realtimeBeaconPairs = new Map(); // floorplanId -> Map(dmac -> Map(timestamp -> { gmac: calcDist }))
-const timeTolerance = 4000;
+const timeTolerance = 5000;
 let client;
 const floorplans = new Map(); // floorplanId -> { name, scale, gateways: Map(gmac -> { x, y }), maskedAreas: [] }
 const gmacToFloorplans = new Map(); // gmac -> Set<floorplanId>
 let interval;
 let refreshInterval;
-const maxSpeed = 0.2;
+const maxSpeed = 1; // Sesuaikan kecepatan maksimum
 const lastBeaconState = new Map(); // dmac -> { x, y, timestamp, primaryFloorplanId }
-const observationWindow = 10;
-const alarmCooldown = 1 * 60 * 1000;
+const observationWindow = 5; // Jumlah pengamatan awal untuk menentukan floorplan
 
 async function initializeAllFloorplans() {
   try {
@@ -50,24 +45,17 @@ async function initializeAllFloorplans() {
       }
     }
 
-    for (const {
-      floorplan_id,
-      area_shape,
-      restricted_status,
-      name,
-    } of maskedAreas) {
+    for (const { floorplan_id, area_shape, restricted_status } of maskedAreas) {
       if (floorplans.has(floorplan_id) && area_shape) {
         const polygonWithIds = JSON.parse(area_shape);
         const polygon = polygonWithIds.map(({ x_px, y_px }) => ({
           x_px,
           y_px,
         }));
-        console.log(restricted_status);
         if (polygon.length >= 3) {
           floorplans.get(floorplan_id).maskedAreas.push({
             area_shape: JSON.stringify(polygon),
             restricted_status,
-            name,
           });
         }
       }
@@ -101,38 +89,25 @@ function pointInPolygon(point, polygon) {
 
 //memeriksa apakah titik valid berdasarkan maskedAreas
 function isPointValid(point, floorplanId) {
-  // const floorplan = floorplans.get(floorplanId);
-  // if (!floorplan) return false;
-  // const { maskedAreas } = floorplan;
-  // const isInRestrictedArea = maskedAreas.some((area) => {
-  //   if (area.restricted_status === "restrict") {
-  //     try {
-  //       const polygon = JSON.parse(area.area_shape);
-  //       return pointInPolygon(point, polygon);
-  //     } catch {
-  //       return false;
-  //     }
-  //   }
-  //   return false;
-  // });
-  // if (isInRestrictedArea) return false;
-
-  // const hasNonRestrict = maskedAreas.some(
-  //   (a) => a.restricted_status === "non-restrict"
-  // );
   const floorplan = floorplans.get(floorplanId);
   if (!floorplan) return false;
-
-  // Periksa apakah titik berada di area restrict
-  if (isInRestrictedArea(point, floorplanId)) {
-    return false; // Titik di area restrict tidak valid
-  }
-
   const { maskedAreas } = floorplan;
+  const isInRestrictedArea = maskedAreas.some((area) => {
+    if (area.restricted_status === "restrict") {
+      try {
+        const polygon = JSON.parse(area.area_shape);
+        return pointInPolygon(point, polygon);
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  });
+  if (isInRestrictedArea) return false;
+
   const hasNonRestrict = maskedAreas.some(
     (a) => a.restricted_status === "non-restrict"
   );
-
   if (hasNonRestrict) {
     return maskedAreas.some((area) => {
       if (area.restricted_status === "non-restrict") {
@@ -145,26 +120,9 @@ function isPointValid(point, floorplanId) {
       }
       return false;
     });
-  } else {
-    return true;
   }
-}
 
-function isInRestrictedArea(point, floorplanId) {
-  const floorplan = floorplans.get(floorplanId);
-  if (!floorplan) return false;
-
-  return floorplan.maskedAreas.some((area) => {
-    if (area.restricted_status === "restrict") {
-      try {
-        const polygon = JSON.parse(area.area_shape);
-        return pointInPolygon(point, polygon);
-      } catch {
-        return false;
-      }
-    }
-    return false;
-  });
+  return true;
 }
 
 function determineBestFloorplan(dmac, positions) {
@@ -193,7 +151,7 @@ function determineBestFloorplan(dmac, positions) {
 
   for (const [floorplanId, stats] of floorplanStats) {
     const avgDist = stats.totalDist / stats.count;
-    const score = stats.count - avgDist * 0.01;
+    const score = stats.count - avgDist * 0.001;
 
     if (score > maxScore) {
       maxScore = score;
@@ -204,43 +162,6 @@ function determineBestFloorplan(dmac, positions) {
   return bestFloorplanId;
 }
 
-async function handleAlarmTrigger(positions, floorplanId, timestamp) {
-  if (!positions || positions.length === 0) return;
-
-  const alarmPositions = positions.filter((p) =>
-    isInRestrictedArea(p.point, floorplanId)
-  );
-  if (alarmPositions.length === 0) return;
-
-  for (const pos of alarmPositions) {
-    const { beaconId: dmac } = pos;
-    const currentTime = timestamp;
-
-    // cek db
-    const activeAlarm = await checkActiveAlarm(dmac);
-    if (
-      !activeAlarm ||
-      currentTime - new Date(activeAlarm.trigger_time).getTime() >=
-        alarmCooldown
-    ) {
-      pos.is_active = true;
-      await saveAlarmTriggers([pos]);
-
-      client.publish(
-        `alarm/topic`,
-        JSON.stringify([
-          { ...pos, floorplanName: floorplans.get(floorplanId)?.name },
-        ]),
-        { qos: 1 }
-      );
-
-      console.log(
-        `Alarm triggered for beacon ${dmac} on floorplan ${floorplanId}`
-      );
-    }
-  }
-}
-
 function setupRealtimeStream() {
   if (!client) {
     client = startMqttClient((topic, filteredBeacon) => {
@@ -248,8 +169,6 @@ function setupRealtimeStream() {
         const { dmac, gmac, calcDist: calcDistStr, time } = filteredBeacon;
         const calc_dist = parseFloat(calcDistStr);
         const timestamp = new Date(time.replace(",", ".") + "Z").getTime();
-        const now = Date.now();
-
         const floorplanIds = Array.from(gmacToFloorplans.get(gmac) || []);
         if (!floorplanIds.length) return;
 
@@ -324,9 +243,11 @@ function setupRealtimeStream() {
           const floorplan = floorplans.get(primaryFloorplanId);
           if (floorplan) {
             const validPositions = positions.filter(
-              (p) => p.floorplanId === primaryFloorplanId && p.point
+              (p) =>
+                p.floorplanId === primaryFloorplanId &&
+                p.point &&
+                isPointValid(p.point, primaryFloorplanId)
             );
-
             const latestPos = validPositions[0];
 
             if (latestPos) {
@@ -341,20 +262,15 @@ function setupRealtimeStream() {
               if (last.x !== null && last.y !== null) {
                 const dx = latestPos.point.x - last.x;
                 const dy = latestPos.point.y - last.y;
-                // const rawDt = (currentTime - last.timestamp) / 1000;
-                // const dt = Math.max(rawDt, 0.1);
                 const dt = (currentTime - last.timestamp) / 1000;
-
                 const dist = Math.sqrt(dx * dx + dy * dy) * floorplan.scale;
                 const speed = dist / dt;
 
                 if (speed > maxSpeed) {
                   isValidSpeed = false;
-                  // console.log(
-                  //   `Beacon ${dmac} ${primaryFloorplanId} terlalu cepat: ${speed.toFixed(
-                  //     2
-                  //   )} m/s`
-                  // );
+                  console.log(
+                    `Beacon ${dmac} terlalu cepat: ${speed.toFixed(2)} m/s`
+                  );
                 }
               }
 
@@ -365,30 +281,11 @@ function setupRealtimeStream() {
 
                 if (validPositions.length > 0) {
                   client.publish(
-                    `tracking/${primaryFloorplanId}`,
+                    `${primaryFloorplanId}`,
                     JSON.stringify(validPositions),
                     { qos: 1 }
                   );
-                  // console.log("validPositions", validPositions);
                 }
-
-                handleAlarmTrigger(
-                  validPositions,
-                  primaryFloorplanId,
-                  currentTime
-                );
-                // const alarmPositions = validPositions.filter((p) =>
-                //   isInRestrictedArea(p.point, primaryFloorplanId)
-                // );
-                // if (alarmPositions.length > 0) {
-                //   client.publish(
-                //     `alarm/${primaryFloorplanId}`,
-                //     JSON.stringify(alarmPositions),
-                //     { qos: 1 }
-                //   );
-                // }
-              } else {
-                return;
               }
             }
           }
@@ -410,8 +307,10 @@ function setupRealtimeStream() {
           floorplan.gateways,
           floorplan.scale
         );
-        const valid = positions.filter((p) => p.point);
-        if (valid.length > 0) await saveBeaconPositions(valid);
+        const valid = positions.filter(
+          (p) => p.point && isPointValid(p.point, floorplanId)
+        );
+        // if (valid.length > 0) await saveBeaconPositions(valid);
       }
 
       for (const [dmac, timestamps] of beacons) {
@@ -441,35 +340,26 @@ function generateBeaconPointsBetweenReaders(
 ) {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
-  const lengthPx = Math.sqrt(dx * dx + dy * dy);
-  if (lengthPx === 0) return null;
+  const length = Math.sqrt(dx * dx + dy * dy);
+  if (length === 0) return null;
 
-  const ux = dx / lengthPx,
-    uy = dy / lengthPx;
-  const lengthMeter = lengthPx * scale;
-
+  const ux = dx / length,
+    uy = dy / length;
+  const lengthMeter = length * scale;
   const totalDist = firstDist + secondDist;
-  // console.log(firstDist, secondDist, totalDist);
-  if (totalDist === 0 || totalDist > lengthMeter * 2.0) return null;
-  // if (Math.abs(firstDist - secondDist) > 2 * lengthMeter) return null;
+  if (totalDist === 0 || totalDist > lengthMeter) return null;
 
-  // if (totalDist === 0) return null;
-
-  let ratio = firstDist / totalDist;
-  let ratioRiyal = Math.max(0.1, Math.min(0.9, ratio));
-  // console.log(firstDist, secondDist, ratio);
-
-  const distFromStartPx = ratioRiyal * lengthPx;
-  if (distFromStartPx < 0 || distFromStartPx > lengthPx) return null;
-  const baseX = start.x + ux * distFromStartPx;
-  const baseY = start.y + uy * distFromStartPx;
+  const ratio = firstDist / totalDist;
+  const distFromStart = ratio * lengthMeter;
+  const baseX = start.x + ux * distFromStart;
+  const baseY = start.y + uy * distFromStart;
   const perpX = -uy;
   const perpY = ux;
 
-  const spreadLeft = 0.5;
-  const spreadRight = 0.5;
-  const spreadAlong = 0.5;
-  const maxAttempts = 10;
+  const spreadLeft = 2;
+  const spreadRight = 2;
+  const spreadAlong = 2;
+  const maxAttempts = 20;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const offsetPerp =
@@ -481,15 +371,7 @@ function generateBeaconPointsBetweenReaders(
     const y = Math.round(baseY + perpY * offsetPerp + uy * offsetAlong);
 
     const point = { x, y };
-    // console.log(
-    //   `[${floorplanId}] ${firstDist.toFixed(2)}m + ${secondDist.toFixed(
-    //     2
-    //   )}m = ${totalDist.toFixed(2)}m (Length ${lengthMeter.toFixed(
-    //     2
-    //   )}m) ➜ ratio ${ratioRiyal.toFixed(2)} → (${point.x}, ${point.y})`
-    // );
-
-    return point;
+    if (isPointValid(point, floorplanId)) return point;
   }
   return null;
 }
@@ -518,7 +400,6 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
         );
 
         if (point) {
-          const inRestrictedArea = isInRestrictedArea(point, floorplanId);
           pairs.push({
             beaconId: dmac,
             pair: `${first.gmac}_${second.gmac}`,
@@ -527,7 +408,6 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
             firstDist: first.distance,
             secondDist: second.distance,
             point,
-            inRestrictedArea,
             firstReaderCoord: { id: first.gmac, ...start },
             secondReaderCoord: { id: second.gmac, ...end },
             time: new Date(time).toISOString(),
