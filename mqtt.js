@@ -88,7 +88,7 @@ function startMqttClient(messageCallback) {
           const filteredRssiModus = modus(kalmanfilterrssi);
           const filteredRssiTrimmed = trimmedMean(kalmanfilterrssi);
 
-          const filteredRssi = filteredRssiModus;
+          const filteredRssi = filteredRssiMean;
 
           // console.log(`DMAC ${dmac}`);
           // console.log("Kalman (last):", filteredRssiLast);

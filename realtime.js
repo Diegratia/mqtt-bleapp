@@ -7,16 +7,16 @@ const {
 } = require("./beaconStorage");
 
 let realtimeBeaconPairs = new Map(); // floorplanId -> Map(dmac -> Map(timestamp -> { gmac: calcDist }))
-const timeTolerance = 4000;
+const timeTolerance = 2000;
 let client;
 const floorplans = new Map(); // floorplanId -> { name, scale, gateways: Map(gmac -> { x, y }), maskedAreas: [] }
 const gmacToFloorplans = new Map(); // gmac -> Set<floorplanId>
 let interval;
 let refreshInterval;
-const maxSpeed = 0.2;
+const maxSpeed = 0.6;
 const lastBeaconState = new Map(); // dmac -> { x, y, timestamp, primaryFloorplanId }
 const observationWindow = 10;
-const alarmCooldown = 1 * 60 * 1000;
+const alarmCooldown = 10 * 60 * 1000;
 
 async function initializeAllFloorplans() {
   try {
@@ -83,71 +83,124 @@ async function initializeAllFloorplans() {
 }
 
 // memeriksa apakah titik berada di dalam poligon
+// function pointInPolygon(point, polygon) {
+//   let x = point.x,
+//     y = point.y,
+//     inside = false;
+//   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+//     let xi = polygon[i].x_px,
+//       yi = polygon[i].y_px;
+//     let xj = polygon[j].x_px,
+//       yj = polygon[j].y_px;
+//     let intersect =
+//       yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+//     if (intersect) inside = !inside;
+//   }
+//   return inside;
+// }
+
 function pointInPolygon(point, polygon) {
-  let x = point.x,
-    y = point.y,
-    inside = false;
+  const { x, y } = point;
+  let inside = false;
+
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    let xi = polygon[i].x_px,
+    const xi = polygon[i].x_px,
       yi = polygon[i].y_px;
-    let xj = polygon[j].x_px,
+    const xj = polygon[j].x_px,
       yj = polygon[j].y_px;
-    let intersect =
-      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+
+    const intersect =
+      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi + 1e-10) + xi;
+
     if (intersect) inside = !inside;
   }
+
   return inside;
 }
 
 //memeriksa apakah titik valid berdasarkan maskedAreas
+// function isPointValid(point, floorplanId) {
+//   // const floorplan = floorplans.get(floorplanId);
+//   // if (!floorplan) return false;
+//   // const { maskedAreas } = floorplan;
+//   // const isInRestrictedArea = maskedAreas.some((area) => {
+//   //   if (area.restricted_status === "restrict") {
+//   //     try {
+//   //       const polygon = JSON.parse(area.area_shape);
+//   //       return pointInPolygon(point, polygon);
+//   //     } catch {
+//   //       return false;
+//   //     }
+//   //   }
+//   //   return false;
+//   // });
+//   // if (isInRestrictedArea) return false;
+
+//   // const hasNonRestrict = maskedAreas.some(
+//   //   (a) => a.restricted_status === "non-restrict"
+//   // );
+//   const floorplan = floorplans.get(floorplanId);
+//   if (!floorplan) return false;
+
+//   // Periksa apakah titik berada di area restrict
+//   if (isInRestrictedArea(point, floorplanId)) {
+//     return false; // Titik di area restrict tidak valid
+//   }
+
+//   const { maskedAreas } = floorplan;
+//   const hasNonRestrict = maskedAreas.some(
+//     (a) => a.restricted_status === "non-restrict"
+//   );
+
+//   if (hasNonRestrict) {
+//     return maskedAreas.some((area) => {
+//       if (area.restricted_status === "non-restrict") {
+//         try {
+//           const polygon = JSON.parse(area.area_shape);
+//           return pointInPolygon(point, polygon);
+//         } catch {
+//           return false;
+//         }
+//       }
+//       return false;
+//     });
+//   } else {
+//     return true;
+//   }
+// }
+
 function isPointValid(point, floorplanId) {
-  // const floorplan = floorplans.get(floorplanId);
-  // if (!floorplan) return false;
-  // const { maskedAreas } = floorplan;
-  // const isInRestrictedArea = maskedAreas.some((area) => {
-  //   if (area.restricted_status === "restrict") {
-  //     try {
-  //       const polygon = JSON.parse(area.area_shape);
-  //       return pointInPolygon(point, polygon);
-  //     } catch {
-  //       return false;
-  //     }
-  //   }
-  //   return false;
-  // });
-  // if (isInRestrictedArea) return false;
-
-  // const hasNonRestrict = maskedAreas.some(
-  //   (a) => a.restricted_status === "non-restrict"
-  // );
   const floorplan = floorplans.get(floorplanId);
-  if (!floorplan) return false;
-
-  // Periksa apakah titik berada di area restrict
-  if (isInRestrictedArea(point, floorplanId)) {
-    return false; // Titik di area restrict tidak valid
+  if (!floorplan) {
+    console.warn(`Floorplan ${floorplanId} not found`);
+    return false;
   }
-
   const { maskedAreas } = floorplan;
-  const hasNonRestrict = maskedAreas.some(
-    (a) => a.restricted_status === "non-restrict"
-  );
 
-  if (hasNonRestrict) {
-    return maskedAreas.some((area) => {
-      if (area.restricted_status === "non-restrict") {
-        try {
-          const polygon = JSON.parse(area.area_shape);
-          return pointInPolygon(point, polygon);
-        } catch {
-          return false;
-        }
-      }
-      return false;
-    });
-  } else {
+  if (maskedAreas.length === 0) {
+    console.log(
+      `No masked areas for ${floorplanId}, point ${point.x},${point.y} considered valid`
+    );
     return true;
   }
+
+  let isInsideAnyPolygon = false;
+  for (const area of maskedAreas) {
+    try {
+      const polygon = JSON.parse(area.area_shape);
+      const isInside = pointInPolygon(point, polygon);
+      if (isInside) {
+        isInsideAnyPolygon = true;
+        // console.log(
+        //   `Point ${point.x},${point.y} inside polygon in ${floorplanId}`
+        // );
+        break;
+      }
+    } catch (error) {
+      console.error(`Error parsing polygon for ${floorplanId}:`, error);
+    }
+  }
+  return isInsideAnyPolygon; // Valid hanya jika di dalam salah satu poligon
 }
 
 function isInRestrictedArea(point, floorplanId) {
@@ -193,7 +246,7 @@ function determineBestFloorplan(dmac, positions) {
 
   for (const [floorplanId, stats] of floorplanStats) {
     const avgDist = stats.totalDist / stats.count;
-    const score = stats.count - avgDist * 0.01;
+    const score = stats.count - avgDist * 0.001;
 
     if (score > maxScore) {
       maxScore = score;
@@ -224,12 +277,33 @@ async function handleAlarmTrigger(positions, floorplanId, timestamp) {
         alarmCooldown
     ) {
       pos.is_active = true;
+      // cari nama masked
+      let maskedAreaName = null;
+      const floorplan = floorplans.get(floorplanId);
+      if (floorplan) {
+        for (const area of floorplan.maskedAreas) {
+          try {
+            const polygon = JSON.parse(area.area_shape);
+            if (pointInPolygon(pos.point, polygon)) {
+              maskedAreaName = area.name;
+              break;
+            }
+          } catch (error) {
+            console.error(`Error parsing polygon for ${floorplanId}:`, error);
+          }
+        }
+      }
+
       await saveAlarmTriggers([pos]);
 
       client.publish(
         `alarm/topic`,
         JSON.stringify([
-          { ...pos, floorplanName: floorplans.get(floorplanId)?.name },
+          {
+            ...pos,
+            floorplanName: floorplans.get(floorplanId)?.name,
+            maskedAreaName,
+          },
         ]),
         { qos: 1 }
       );
@@ -450,13 +524,21 @@ function generateBeaconPointsBetweenReaders(
 
   const totalDist = firstDist + secondDist;
   // console.log(firstDist, secondDist, totalDist);
-  if (totalDist === 0 || totalDist > lengthMeter * 2.0) return null;
+  // if (totalDist === 0 || totalDist > lengthMeter * 2.0) return null;
+  if (
+    firstDist < 0 ||
+    secondDist < 0 ||
+    firstDist > lengthMeter * 1.5 ||
+    secondDist > lengthMeter * 1.5
+  ) {
+    return null;
+  }
   // if (Math.abs(firstDist - secondDist) > 2 * lengthMeter) return null;
 
   // if (totalDist === 0) return null;
 
   let ratio = firstDist / totalDist;
-  let ratioRiyal = Math.max(0.1, Math.min(0.9, ratio));
+  let ratioRiyal = Math.max(0.01, Math.min(0.09, ratio));
   // console.log(firstDist, secondDist, ratio);
 
   const distFromStartPx = ratioRiyal * lengthPx;
@@ -466,10 +548,10 @@ function generateBeaconPointsBetweenReaders(
   const perpX = -uy;
   const perpY = ux;
 
-  const spreadLeft = 0.5;
-  const spreadRight = 0.5;
-  const spreadAlong = 0.5;
-  const maxAttempts = 10;
+  const spreadLeft = 0.01;
+  const spreadRight = 0.01;
+  const spreadAlong = 0.01;
+  const maxAttempts = 20;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const offsetPerp =
@@ -519,6 +601,23 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
 
         if (point) {
           const inRestrictedArea = isInRestrictedArea(point, floorplanId);
+
+          let maskedAreaName = null;
+          const floorplan = floorplans.get(floorplanId);
+          if (floorplan) {
+            for (const area of floorplan.maskedAreas) {
+              try {
+                const polygon = JSON.parse(area.area_shape);
+                if (pointInPolygon(point, polygon)) {
+                  maskedAreaName = area.name;
+                  break;
+                }
+              } catch {
+                console.error(`Error parsing polygon for ${floorplanId}`);
+              }
+            }
+          }
+
           pairs.push({
             beaconId: dmac,
             pair: `${first.gmac}_${second.gmac}`,
@@ -532,6 +631,8 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
             secondReaderCoord: { id: second.gmac, ...end },
             time: new Date(time).toISOString(),
             floorplanId,
+            floorplanName: floorplans.get(floorplanId).name,
+            maskedAreaName,
           });
         }
       }
