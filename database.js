@@ -17,8 +17,6 @@ const dbConfig = {
   },
 };
 
-// Server=103.193.15.120,5433;Database=testingble_gresik;User Id=sa;Password=P@ssw0rd;TrustServerCertificate=True;
-
 async function initializeDatabase(testTableName = null) {
   try {
     const pool = await sql.connect(dbConfig);
@@ -84,19 +82,19 @@ async function initializeDatabase(testTableName = null) {
     await db.request().query(`
       IF NOT EXISTS (SELECT * FROM sysobjects WHERE name = 'alarm_triggers' AND xtype = 'U')
       CREATE TABLE alarm_triggers (
-      id UNIQUEIDENTIFIER PRIMARY KEY,
-      beacon_id VARCHAR(12) NOT NULL,
-      floorplan_id UNIQUEIDENTIFIER NOT NULL,
-      pos_x BIGINT NOT NULL,
-      pos_y BIGINT NOT NULL,
-      is_in_restricted_area BIT NOT NULL,
-      first_gateway_id VARCHAR(12) NOT NULL,
-      second_gateway_id VARCHAR(12) NOT NULL,
-      first_distance FLOAT NOT NULL,
-      second_distance FLOAT NOT NULL,
-      trigger_time DATETIME NOT NULL,
-      is_active BIT NOT NULL DEFAULT 1,
-      created_at DATETIME DEFAULT GETDATE()
+        id UNIQUEIDENTIFIER PRIMARY KEY,
+        beacon_id VARCHAR(12) NOT NULL,
+        floorplan_id UNIQUEIDENTIFIER NOT NULL,
+        pos_x BIGINT NOT NULL,
+        pos_y BIGINT NOT NULL,
+        is_in_restricted_area BIT NOT NULL,
+        first_gateway_id VARCHAR(12) NOT NULL,
+        second_gateway_id VARCHAR(12) NOT NULL,
+        first_distance FLOAT NOT NULL,
+        second_distance FLOAT NOT NULL,
+        trigger_time DATETIME NOT NULL,
+        is_active BIT NOT NULL DEFAULT 1,
+        created_at DATETIME DEFAULT GETDATE()
       );
     `);
 
@@ -166,13 +164,17 @@ async function fetchAllFloorplans() {
       JOIN mst_floorplan fp ON fma.floor_id = fp.floor_id
       WHERE fma.status != 0 AND fp.status != 0
     `);
-    // console.log(
-    //   `Fetched ${floorplanResult.recordset.length} floorplans, ${gatewayResult.recordset.length} gateways, ${maskedAreaResult.recordset.length} masked areas`
-    // );
+    const accessDoorResult = await db.request().query(`
+      SELECT fd.floorplan_id, fd.pos_px_x, fd.pos_px_y, mac.door_id
+      FROM floorplan_device fd
+      JOIN mst_access_control mac ON fd.access_control_id = mac.id
+      WHERE fd.type = 'AccessDoor' AND fd.status != 0 AND mac.status != 0
+    `);
     return {
       floorplans: floorplanResult.recordset,
       gateways: gatewayResult.recordset,
       maskedAreas: maskedAreaResult.recordset,
+      accessDoors: accessDoorResult.recordset,
     };
   } catch (error) {
     console.error("Error fetching all floorplans:", error);

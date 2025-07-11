@@ -45,135 +45,6 @@ async function saveBeaconPositions(positions) {
   }
 }
 
-// async function saveAlarmTriggers(positions) {
-//   if (!positions || positions.length === 0) {
-//     return;
-//   }
-
-//   try {
-//     const { db } = getDbPool();
-//     let savedCount = 0;
-//     let updatedCount = 0;
-
-//     for (const pos of positions) {
-//       const { beaconId: dmac } = pos;
-
-//       // Periksa apakah ada alarm aktif untuk dmac
-//       const activeAlarm = await checkActiveAlarm(dmac);
-//       const request = db.request();
-
-//       if (activeAlarm) {
-//         // Perbarui entri alarm yang ada
-//         await request
-//           .input("id", sql.UniqueIdentifier, activeAlarm.id)
-//           .input("beacon_id", sql.VarChar(12), pos.beaconId)
-//           .input("floorplan_id", sql.UniqueIdentifier, pos.floorplanId)
-//           .input("pos_x", sql.BigInt, pos.point.x)
-//           .input("pos_y", sql.BigInt, pos.point.y)
-//           .input("is_in_restricted_area", sql.Bit, pos.inRestrictedArea)
-//           .input("first_gateway_id", sql.VarChar(12), pos.first)
-//           .input("second_gateway_id", sql.VarChar(12), pos.second)
-//           .input("first_distance", sql.Float, pos.firstDist)
-//           .input("second_distance", sql.Float, pos.secondDist)
-//           .input("trigger_time", sql.DateTime, new Date(pos.time))
-//           .input("is_active", sql.Bit, true).query(`
-//             UPDATE alarm_triggers
-//             SET
-//               floorplan_id = @floorplan_id,
-//               pos_x = @pos_x,
-//               pos_y = @pos_y,
-//               is_in_restricted_area = @is_in_restricted_area,
-//               first_gateway_id = @first_gateway_id,
-//               second_gateway_id = @second_gateway_id,
-//               first_distance = @first_distance,
-//               second_distance = @second_distance,
-//               trigger_time = @trigger_time,
-//               is_active = @is_active
-//             WHERE id = @id AND beacon_id = @beacon_id AND is_active = 1
-//           `);
-
-//         console.log(`Updated alarm for ${dmac} with id ${activeAlarm.id}`);
-//         updatedCount++;
-//       } else {
-//         // Simpan entri alarm baru jika tidak ada alarm aktif
-//         await request
-//           .input("id", sql.UniqueIdentifier, uuidv4())
-//           .input("beacon_id", sql.VarChar(12), pos.beaconId)
-//           .input("floorplan_id", sql.UniqueIdentifier, pos.floorplanId)
-//           .input("pos_x", sql.BigInt, pos.point.x)
-//           .input("pos_y", sql.BigInt, pos.point.y)
-//           .input("is_in_restricted_area", sql.Bit, pos.inRestrictedArea)
-//           .input("first_gateway_id", sql.VarChar(12), pos.first)
-//           .input("second_gateway_id", sql.VarChar(12), pos.second)
-//           .input("first_distance", sql.Float, pos.firstDist)
-//           .input("second_distance", sql.Float, pos.secondDist)
-//           .input("trigger_time", sql.DateTime, new Date(pos.time))
-//           .input("is_active", sql.Bit, true).query(`
-//             INSERT INTO alarm_triggers (
-//               id, beacon_id, floorplan_id, pos_x, pos_y, is_in_restricted_area,
-//               first_gateway_id, second_gateway_id, first_distance, second_distance,
-//               trigger_time, is_active
-//             ) VALUES (
-//               @id, @beacon_id, @floorplan_id, @pos_x, @pos_y, @is_in_restricted_area,
-//               @first_gateway_id, @second_gateway_id, @first_distance, @second_distance,
-//               @trigger_time, @is_active
-//             )
-//           `);
-
-//         console.log(`Saved new alarm for ${dmac}`);
-//         savedCount++;
-//       }
-//     }
-
-//     console.log(
-//       `Saved ${savedCount} new alarms, updated ${updatedCount} existing alarms`
-//     );
-//   } catch (error) {
-//     console.error(`Failed to save or update alarm triggers: ${error.message}`);
-//     throw error;
-//   }
-// }
-
-// async function checkActiveAlarm(dmac) {
-//   try {
-//     const { db } = getDbPool();
-//     const result = await db.request().input("beacon_id", sql.VarChar(12), dmac)
-//       .query(`
-//         SELECT TOP 1 * FROM alarm_triggers
-//         WHERE beacon_id = @beacon_id AND is_active = 1
-//         ORDER BY trigger_time DESC
-//       `);
-//     return result.recordset.length > 0 ? result.recordset[0] : null;
-//   } catch (error) {
-//     console.error(`Failed to check active alarm for ${dmac}: ${error.message}`);
-//     throw error;
-//   }
-// }
-
-// async function deactivateAlarm(dmac) {
-//   try {
-//     const { db } = getDbPool();
-//     const result = await db.request().input("beacon_id", sql.VarChar(12), dmac)
-//       .query(`
-//         UPDATE alarm_triggers
-//         SET is_active = 0
-//         WHERE beacon_id = @beacon_id AND is_active = 1
-//       `);
-//     console.log(`Deactivated alarm for beacon ${dmac}`);
-//     return result.rowsAffected[0] > 0;
-//   } catch (error) {
-//     console.error(`Failed to deactivate alarm for ${dmac}: ${error.message}`);
-//     throw error;
-//   }
-// }
-
-// module.exports = {
-//   saveBeaconPositions,
-//   saveAlarmTriggers,
-//   checkActiveAlarm,
-//   deactivateAlarm,
-// };
-
 async function saveAlarmTriggers(positions) {
   if (!positions || positions.length === 0) {
     return;
@@ -181,32 +52,84 @@ async function saveAlarmTriggers(positions) {
 
   try {
     const { db } = getDbPool();
+    let savedCount = 0;
+    let updatedCount = 0;
 
     for (const pos of positions) {
+      const { beaconId: dmac } = pos;
+
+      // Periksa apakah ada alarm aktif untuk dmac
+      const activeAlarm = await checkActiveAlarm(dmac);
       const request = db.request();
-      await request
-        .input("id", sql.UniqueIdentifier, uuidv4())
-        .input("beacon_id", pos.beaconId)
-        .input("floorplan_id", pos.floorplanId)
-        .input("pos_x", pos.point.x)
-        .input("pos_y", pos.point.y)
-        .input("is_in_restricted_area", pos.inRestrictedArea)
-        .input("first_gateway_id", pos.first)
-        .input("second_gateway_id", pos.second)
-        .input("first_distance", pos.firstDist)
-        .input("second_distance", pos.secondDist)
-        .input("trigger_time", new Date(pos.time))
-        .input("is_active", sql.Bit, true).query(`
-          INSERT INTO alarm_triggers (id, beacon_id, floorplan_id, pos_x, pos_y, is_in_restricted_area, first_gateway_id, second_gateway_id, first_distance, second_distance, trigger_time, is_active)
-          VALUES (@id, @beacon_id, @floorplan_id, @pos_x, @pos_y, @is_in_restricted_area, @first_gateway_id, @second_gateway_id, @first_distance, @second_distance, @trigger_time, @is_active)
-        `);
+
+      if (activeAlarm) {
+        // Perbarui entri alarm yang ada
+        await request
+          .input("id", sql.UniqueIdentifier, activeAlarm.id)
+          .input("beacon_id", sql.VarChar(12), pos.beaconId)
+          .input("floorplan_id", sql.UniqueIdentifier, pos.floorplanId)
+          .input("pos_x", sql.BigInt, pos.point.x)
+          .input("pos_y", sql.BigInt, pos.point.y)
+          .input("is_in_restricted_area", sql.Bit, pos.inRestrictedArea)
+          .input("first_gateway_id", sql.VarChar(12), pos.first)
+          .input("second_gateway_id", sql.VarChar(12), pos.second)
+          .input("first_distance", sql.Float, pos.firstDist)
+          .input("second_distance", sql.Float, pos.secondDist)
+          .input("trigger_time", sql.DateTime, new Date(pos.time))
+          .input("is_active", sql.Bit, true).query(`
+            UPDATE alarm_triggers
+            SET
+              floorplan_id = @floorplan_id,
+              pos_x = @pos_x,
+              pos_y = @pos_y,
+              is_in_restricted_area = @is_in_restricted_area,
+              first_gateway_id = @first_gateway_id,
+              second_gateway_id = @second_gateway_id,
+              first_distance = @first_distance,
+              second_distance = @second_distance,
+              trigger_time = @trigger_time,
+              is_active = @is_active
+            WHERE id = @id AND beacon_id = @beacon_id AND is_active = 1
+          `);
+
+        console.log(`Updated alarm for ${dmac} with id ${activeAlarm.id}`);
+        updatedCount++;
+      } else {
+        // Simpan entri alarm baru jika tidak ada alarm aktif
+        await request
+          .input("id", sql.UniqueIdentifier, uuidv4())
+          .input("beacon_id", sql.VarChar(12), pos.beaconId)
+          .input("floorplan_id", sql.UniqueIdentifier, pos.floorplanId)
+          .input("pos_x", sql.BigInt, pos.point.x)
+          .input("pos_y", sql.BigInt, pos.point.y)
+          .input("is_in_restricted_area", sql.Bit, pos.inRestrictedArea)
+          .input("first_gateway_id", sql.VarChar(12), pos.first)
+          .input("second_gateway_id", sql.VarChar(12), pos.second)
+          .input("first_distance", sql.Float, pos.firstDist)
+          .input("second_distance", sql.Float, pos.secondDist)
+          .input("trigger_time", sql.DateTime, new Date(pos.time))
+          .input("is_active", sql.Bit, true).query(`
+            INSERT INTO alarm_triggers (
+              id, beacon_id, floorplan_id, pos_x, pos_y, is_in_restricted_area,
+              first_gateway_id, second_gateway_id, first_distance, second_distance,
+              trigger_time, is_active
+            ) VALUES (
+              @id, @beacon_id, @floorplan_id, @pos_x, @pos_y, @is_in_restricted_area,
+              @first_gateway_id, @second_gateway_id, @first_distance, @second_distance,
+              @trigger_time, @is_active
+            )
+          `);
+
+        console.log(`Saved new alarm for ${dmac}`);
+        savedCount++;
+      }
     }
 
-    console.log(`Saved ${positions.length} alarm triggers to alarm_triggers`);
-  } catch (error) {
-    console.error(
-      `Failed to save alarm triggers to database: ${error.message}`
+    console.log(
+      `Saved ${savedCount} new alarms, updated ${updatedCount} existing alarms`
     );
+  } catch (error) {
+    console.error(`Failed to save or update alarm triggers: ${error.message}`);
     throw error;
   }
 }
@@ -250,3 +173,80 @@ module.exports = {
   checkActiveAlarm,
   deactivateAlarm,
 };
+
+// async function saveAlarmTriggers(positions) {
+//   if (!positions || positions.length === 0) {
+//     return;
+//   }
+
+//   try {
+//     const { db } = getDbPool();
+
+//     for (const pos of positions) {
+//       const request = db.request();
+//       await request
+//         .input("id", sql.UniqueIdentifier, uuidv4())
+//         .input("beacon_id", pos.beaconId)
+//         .input("floorplan_id", pos.floorplanId)
+//         .input("pos_x", pos.point.x)
+//         .input("pos_y", pos.point.y)
+//         .input("is_in_restricted_area", pos.inRestrictedArea)
+//         .input("first_gateway_id", pos.first)
+//         .input("second_gateway_id", pos.second)
+//         .input("first_distance", pos.firstDist)
+//         .input("second_distance", pos.secondDist)
+//         .input("trigger_time", new Date(pos.time))
+//         .input("is_active", sql.Bit, true).query(`
+//           INSERT INTO alarm_triggers (id, beacon_id, floorplan_id, pos_x, pos_y, is_in_restricted_area, first_gateway_id, second_gateway_id, first_distance, second_distance, trigger_time, is_active)
+//           VALUES (@id, @beacon_id, @floorplan_id, @pos_x, @pos_y, @is_in_restricted_area, @first_gateway_id, @second_gateway_id, @first_distance, @second_distance, @trigger_time, @is_active)
+//         `);
+//     }
+
+//     console.log(`Saved ${positions.length} alarm triggers to alarm_triggers`);
+//   } catch (error) {
+//     console.error(
+//       `Failed to save alarm triggers to database: ${error.message}`
+//     );
+//     throw error;
+//   }
+// }
+
+// async function checkActiveAlarm(dmac) {
+//   try {
+//     const { db } = getDbPool();
+//     const result = await db.request().input("beacon_id", sql.VarChar(12), dmac)
+//       .query(`
+//         SELECT TOP 1 * FROM alarm_triggers
+//         WHERE beacon_id = @beacon_id AND is_active = 1
+//         ORDER BY trigger_time DESC
+//       `);
+//     return result.recordset.length > 0 ? result.recordset[0] : null;
+//   } catch (error) {
+//     console.error(`Failed to check active alarm for ${dmac}: ${error.message}`);
+//     throw error;
+//   }
+// }
+
+// async function deactivateAlarm(dmac) {
+//   try {
+//     const { db } = getDbPool();
+//     const result = await db.request().input("beacon_id", sql.VarChar(12), dmac)
+//       .query(`
+//         UPDATE alarm_triggers
+//         SET is_active = 0
+//         WHERE beacon_id = @beacon_id AND is_active = 1
+//       `);
+//     console.log(`Deactivated alarm for beacon ${dmac}`);
+//     return result.rowsAffected[0] > 0;
+//   } catch (error) {
+//     console.error(`Failed to deactivate alarm for ${dmac}: ${error.message}`);
+//     throw error;
+//   }
+// }
+
+// module.exports = {
+//   saveBeaconPositions,
+//   saveAlarmTriggers,
+//   checkActiveAlarm,
+//   deactivateAlarm,
+// };
