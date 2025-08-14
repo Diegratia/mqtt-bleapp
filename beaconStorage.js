@@ -16,8 +16,8 @@ async function saveBeaconPositions(positions) {
       request.input("id", sql.UniqueIdentifier, uuidv4());
       request.input("beacon_id", sql.VarChar(12), pos.beaconId);
       request.input("floorplan_id", sql.UniqueIdentifier, pos.floorplanId);
-      request.input("pos_x", sql.BigInt, pos.point.x);
-      request.input("pos_y", sql.BigInt, pos.point.y);
+      request.input("pos_x", sql.Float, pos.point.x);
+      request.input("pos_y", sql.Float, pos.point.y);
       request.input("is_in_restricted_area", sql.BigInt, pos.inRestrictedArea);
       request.input("first_gateway_id", sql.VarChar(12), pos.first);
       request.input("second_gateway_id", sql.VarChar(12), pos.second);
@@ -38,7 +38,7 @@ async function saveBeaconPositions(positions) {
       `);
     }
 
-    // console.log(`Saved ${positions.length} positions to beacon_positions`);
+    console.log(`Saved ${positions.length} positions to beacon_positions`);
   } catch (error) {
     console.error(`Failed to save positions to database: ${error.message}`);
     throw error;
@@ -173,6 +173,8 @@ module.exports = {
   checkActiveAlarm,
   deactivateAlarm,
 };
+
+// var ApplciationId = "C926D20B-A746-4492-9924-EB7EEE76305C";
 
 // async function saveAlarmTriggers(positions) {
 //   if (!positions || positions.length === 0) {

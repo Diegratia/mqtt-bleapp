@@ -4,7 +4,7 @@ const { KalmanFilter } = require("kalman-filter");
 var Topic = "test/topic";
 var Broker_URL = "mqtt://192.168.1.116:1888";
 var checkkalmanlimit = 10;
-var movingAverageWindow = 5;
+var movingAverageWindow = 9;
 var scale = 3.8;
 
 const kalmanFilters = new Map();
@@ -57,7 +57,8 @@ function startMqttClient(messageCallback) {
             beacon.dmac == "BC572913EA8B" ||
             beacon.dmac == "BC572913EA73" ||
             beacon.dmac == "BC572913EA8A" ||
-            beacon.dmac == "BC572905DB85"
+            beacon.dmac == "BC572905DB85" ||
+            beacon.dmac == "BC572905DB80"
           )
             beacon.gmac = gatewayId;
           var gmac = gatewayId;

@@ -6,6 +6,7 @@ const { deactivateAlarm } = require("./beaconStorage");
 const {
   setupRealtimeStream,
   initializeAllFloorplans,
+  initializeCardCache,
   lastBeaconState,
 } = require("./realtime");
 const path = require("path");
@@ -84,6 +85,7 @@ async function startServer() {
   try {
     await initializeDatabase(testTableName);
     await initializeAllFloorplans();
+    await initializeCardCache();
     setupRealtimeStream();
     app.listen(port, () => {
       console.log(`running at http://localhost:${port}`);
