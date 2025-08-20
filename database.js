@@ -10,7 +10,7 @@ const dbConfig = {
   password: "Password_123#",
   server: "192.168.1.116",
   port: 1433,
-  database: "BleTrackingDbDev",
+  database: "BleTrackingDb",
   options: {
     encrypt: false,
     trustServerCertificate: true,
@@ -67,8 +67,8 @@ async function initializeDatabase(testTableName = null) {
         id UNIQUEIDENTIFIER PRIMARY KEY,
         beacon_id VARCHAR(12) NOT NULL,
         floorplan_id UNIQUEIDENTIFIER NOT NULL,
-        pos_x BIGINT NOT NULL,
-        pos_y BIGINT NOT NULL,
+        pos_x FLOAT NOT NULL,
+        pos_y FLOAT NOT NULL,
         is_in_restricted_area BIT NOT NULL,
         first_gateway_id VARCHAR(12) NOT NULL,
         second_gateway_id VARCHAR(12) NOT NULL,
@@ -142,6 +142,21 @@ function getDbPool() {
   };
 }
 
+async function fetchAllCardsWithDmac() {
+  const { db } = getDbPool();
+  try {
+    const result = await db.request().query(`
+      SELECT id, name, card_number, qr_code, dmac, type, visitor_id, member_id
+      FROM card
+      WHERE dmac IS NOT NULL AND dmac != '' AND status_card != 0 AND type = 'ble' AND is_used = 1
+    `);
+    return result.recordset;
+  } catch (error) {
+    console.error("Error fetching cards with dmac:", error.message);
+    throw error;
+  }
+}
+
 async function fetchAllFloorplans() {
   const { db } = getDbPool();
   try {
@@ -150,25 +165,25 @@ async function fetchAllFloorplans() {
       SELECT fp.id AS floorplan_id, fp.name, m.meter_per_px AS scale
       FROM mst_floorplan fp
       JOIN mst_floor m ON fp.floor_id = m.id
-      WHERE m.status != 0 AND fp.status != 0
+      WHERE m.status != 0 OR fp.status != 0
     `);
     const gatewayResult = await db.request().query(`
-      SELECT fd.floorplan_id, br.gmac, fd.pos_px_x, fd.pos_px_y
+      SELECT fd.floorplan_id, br.gmac, br.id AS reader_id, fd.pos_px_x, fd.pos_px_y
       FROM floorplan_device fd
       JOIN mst_ble_reader br ON fd.ble_reader_id = br.id
-      WHERE fd.type = 'blereader' AND fd.status != 0 AND br.status != 0
+      WHERE fd.type = 'blereader' AND (fd.status != 0 OR br.status != 0)
     `);
     const maskedAreaResult = await db.request().query(`
-      SELECT fp.id AS floorplan_id, fma.name, fma.area_shape, fma.restricted_status
+      SELECT fp.id AS floorplan_id, fma.id AS area_id, fma.name, fma.area_shape, fma.restricted_status
       FROM floorplan_masked_area fma
       JOIN mst_floorplan fp ON fma.floor_id = fp.floor_id
-      WHERE fma.status != 0 AND fp.status != 0
+      WHERE fma.status != 0 OR fp.status != 0
     `);
     const accessDoorResult = await db.request().query(`
       SELECT fd.floorplan_id, fd.pos_px_x, fd.pos_px_y, mac.door_id
       FROM floorplan_device fd
       JOIN mst_access_control mac ON fd.access_control_id = mac.id
-      WHERE fd.type = 'AccessDoor' AND fd.status != 0 AND mac.status != 0
+      WHERE fd.type = 'AccessDoor' OR fd.status != 0 OR mac.status != 0
     `);
     return {
       floorplans: floorplanResult.recordset,
@@ -182,4 +197,9 @@ async function fetchAllFloorplans() {
   }
 }
 
-module.exports = { initializeDatabase, getDbPool, fetchAllFloorplans };
+module.exports = {
+  initializeDatabase,
+  getDbPool,
+  fetchAllFloorplans,
+  fetchAllCardsWithDmac,
+};
