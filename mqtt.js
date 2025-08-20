@@ -3,7 +3,8 @@ var mqtt = require("mqtt");
 const { KalmanFilter } = require("kalman-filter");
 var Topic = "test/topic";
 var Broker_URL = "mqtt://192.168.1.116:1888";
-var checkkalmanlimit = 20;
+var checkkalmanlimit = 10;
+var movingAverageWindow = 5;
 var scale = 3.8;
 
 const kalmanFilters = new Map();
@@ -36,6 +37,12 @@ function startMqttClient(messageCallback) {
     console.log("MQTT error:", err);
   }
 
+  function simpleMovingAverage(arr, windowSize) {
+    if (arr.length < windowSize) return null;
+    const slice = arr.slice(-windowSize);
+    return slice.reduce((sum, val) => sum + val, 0) / windowSize;
+  }
+
   function mqtt_messageReceived(topic, message, packet) {
     try {
       var message_str = message.toString();
@@ -48,9 +55,9 @@ function startMqttClient(messageCallback) {
           if (beacon.type !== 4) return;
           if (
             beacon.dmac == "BC572913EA8B" ||
-            beacon.dmac == "BC572913EA73"
-            // beacon.dmac == "BC572913EA8A" ||
-            // beacon.dmac == "BC572905DB85"
+            beacon.dmac == "BC572913EA73" ||
+            beacon.dmac == "BC572913EA8A" ||
+            beacon.dmac == "BC572905DB85"
           )
             beacon.gmac = gatewayId;
           var gmac = gatewayId;
@@ -64,14 +71,28 @@ function startMqttClient(messageCallback) {
           }
 
           collectionRssiGate[gmac][dmac].push(beacon.rssi);
-          if (collectionRssiGate[gmac][dmac].length < checkkalmanlimit) {
-            return;
+          if (collectionRssiGate[gmac][dmac].length > checkkalmanlimit) {
+            collectionRssiGate[gmac][dmac].shift();
+            // return;
+          }
+
+          if (collectionRssiGate[gmac][dmac].length >= checkkalmanlimit) {
+            //moving average
+            const smoothedRssi = simpleMovingAverage(
+              collectionRssiGate[gmac][dmac],
+              movingAverageWindow
+            );
+            if (smoothedRssi === null) return;
           }
 
           const filterKey = `${dmac}_${gmac}`;
           let kf = kalmanFilters.get(filterKey);
           if (!kf) {
-            kf = new KalmanFilter({ observation: 1 });
+            kf = new KalmanFilter({
+              observation: 1,
+              R: 50,
+              Q: 0.01,
+            });
             kalmanFilters.set(filterKey, kf);
           }
 
@@ -86,9 +107,9 @@ function startMqttClient(messageCallback) {
             kalmanfilterrssi[kalmanfilterrssi.length - 1];
           const filteredRssiMean = mean(kalmanfilterrssi);
           const filteredRssiModus = modus(kalmanfilterrssi);
-          const filteredRssiTrimmed = trimmedMean(kalmanfilterrssi);
+          const filteredRssiTrimmed = trimmedMean(kalmanfilterrssi, 0.2);
 
-          const filteredRssi = filteredRssiModus;
+          const filteredRssi = filteredRssiTrimmed || filteredRssiMean;
 
           // console.log(`DMAC ${dmac}`);
           // console.log("Kalman (last):", filteredRssiLast);
