@@ -7,6 +7,7 @@ const {
   setupRealtimeStream,
   initializeAllFloorplans,
   initializeCardCache,
+  initializeBlacklistArea,
   lastBeaconState,
 } = require("./realtime");
 const path = require("path");
@@ -86,6 +87,7 @@ async function startServer() {
     await initializeDatabase(testTableName);
     await initializeAllFloorplans();
     await initializeCardCache();
+    await initializeBlacklistArea();
     setupRealtimeStream();
     app.listen(port, () => {
       console.log(`running at http://localhost:${port}`);

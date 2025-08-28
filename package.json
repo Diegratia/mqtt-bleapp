@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node index.js",
-    "watch" : "nodemon index.js",
+    "watch": "nodemon index.js",
     "dev": "parcel ./src/index.html",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -11,7 +11,9 @@
     "parcel": "^2.6.2"
   },
   "dependencies": {
+    "@cityssm/ntfy-publish": "^1.1.0",
     "@cubejs-client/core": "^0.31.0",
+    "axios": "^1.11.0",
     "brain": "^1.0.0",
     "chart.js": "^4.0.0",
     "console-stamp": "^3.1.2",
@@ -24,6 +26,7 @@
     "mssql": "^11.0.1",
     "node-trilateration": "^1.0.0",
     "nodemon": "^3.1.10",
+    "point-in-polygon": "^1.1.0",
     "sma": "^0.1.1"
   }
 }

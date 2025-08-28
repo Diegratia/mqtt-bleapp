@@ -80,13 +80,31 @@ async function initializeDatabase(testTableName = null) {
     `);
 
     await db.request().query(`
+      IF NOT EXISTS (SELECT * FROM sysobjects WHERE name = 'tracking_transaction' AND xtype = 'U')
+      CREATE TABLE tracking_transaction (
+        id UNIQUEIDENTIFIER PRIMARY KEY,
+        trans_time DATETIME2 NULL,
+        reader_id UNIQUEIDENTIFIER NULL,
+        card_id UNIQUEIDENTIFIER NULL,
+        floorplan_masked_area_id UNIQUEIDENTIFIER NULL,
+        coordinate_x REAL NULL,
+        coordinate_y REAL NULL,
+        coordinate_px_x REAL NULL,
+        coordinate_px_y REAL NULL,
+        alarm_status VARCHAR NULL,
+        battery BIGINT NULL,
+        application_id UNIQUEIDENTIFIER NOT NULL
+      );
+    `);
+
+    await db.request().query(`
       IF NOT EXISTS (SELECT * FROM sysobjects WHERE name = 'alarm_triggers' AND xtype = 'U')
       CREATE TABLE alarm_triggers (
         id UNIQUEIDENTIFIER PRIMARY KEY,
         beacon_id VARCHAR(12) NOT NULL,
         floorplan_id UNIQUEIDENTIFIER NOT NULL,
-        pos_x BIGINT NOT NULL,
-        pos_y BIGINT NOT NULL,
+        pos_x REAL NOT NULL,
+        pos_y REAL NOT NULL,
         is_in_restricted_area BIT NOT NULL,
         first_gateway_id VARCHAR(12) NOT NULL,
         second_gateway_id VARCHAR(12) NOT NULL,
@@ -157,6 +175,21 @@ async function fetchAllCardsWithDmac() {
   }
 }
 
+async function fetchAllVisitorBlacklistArea() {
+  const { db } = getDbPool();
+  try {
+    const result = await db.request().query(`
+      SELECT visitor_id, floorplan_masked_area_id
+      FROM visitor_blacklist_area
+      WHERE status != 0 
+    `);
+    return result.recordset;
+  } catch (error) {
+    console.error("Error fetching visitor blacklist areas:", error.message);
+    throw error;
+  }
+}
+
 async function fetchAllFloorplans() {
   const { db } = getDbPool();
   try {
@@ -202,4 +235,5 @@ module.exports = {
   getDbPool,
   fetchAllFloorplans,
   fetchAllCardsWithDmac,
+  fetchAllVisitorBlacklistArea,
 };

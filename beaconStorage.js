@@ -23,7 +23,7 @@ async function saveBeaconPositions(positions) {
       request.input("second_gateway_id", sql.VarChar(12), pos.second);
       request.input("first_distance", sql.Float, pos.firstDist);
       request.input("second_distance", sql.Float, pos.secondDist);
-      request.input("timestamp", sql.DateTime, new Date(pos.time));
+      request.input("timestamp", sql.DateTime, pos.time);
 
       await request.query(`
         INSERT INTO beacon_positions (
@@ -39,6 +39,65 @@ async function saveBeaconPositions(positions) {
     }
 
     console.log(`Saved ${positions.length} positions to beacon_positions`);
+  } catch (error) {
+    console.error(`Failed to save positions to database: ${error.message}`);
+    throw error;
+  }
+}
+
+async function saveTrackingTransactions(positions) {
+  if (!positions || positions.length === 0) {
+    return;
+  }
+
+  try {
+    const { db } = getDbPool();
+
+    for (const pos of positions) {
+      const request = db.request();
+
+      const cardId = pos.cardId;
+      const readerId = pos.firstReaderId;
+      const maskedAreaId = pos.maskedAreaId;
+      const transTime = pos.time ? new Date(pos.time) : new Date();
+      const coordX = pos.point.x;
+      const coordY = pos.point.y;
+      const coordPxX = pos.pixelPoint?.x ?? null; // pixel
+      const coordPxY = pos.pixelPoint?.y ?? null; // pixel
+
+      const alarmStatus = pos.inRestrictedArea ? "active" : "non-active";
+      const battery = 100;
+      const applicationId = "C926D20B-A746-4492-9924-EB7EEE76305C";
+
+      request.input("id", sql.UniqueIdentifier, uuidv4());
+      request.input("trans_time", sql.DateTime2, transTime);
+      request.input("reader_id", sql.UniqueIdentifier, readerId);
+      request.input("card_id", sql.UniqueIdentifier, cardId);
+      request.input(
+        "floorplan_masked_area_id",
+        sql.UniqueIdentifier,
+        maskedAreaId
+      );
+      request.input("coordinate_x", sql.Real, coordX);
+      request.input("coordinate_y", sql.Real, coordY);
+      request.input("coordinate_px_x", sql.Real, coordPxX);
+      request.input("coordinate_px_y", sql.Real, coordPxY);
+      request.input("alarm_status", sql.VarChar, alarmStatus);
+      request.input("battery", sql.BigInt, battery);
+      request.input("application_id", sql.UniqueIdentifier, applicationId);
+
+      await request.query(`
+        INSERT INTO tracking_transaction (
+          id, trans_time, reader_id, card_id, floorplan_masked_area_id, coordinate_x, coordinate_y,
+          coordinate_px_x, coordinate_px_y, alarm_status, battery, application_id
+        ) VALUES (
+          @id, @trans_time, @reader_id, @card_id, @floorplan_masked_area_id, @coordinate_x, @coordinate_y, 
+          @coordinate_px_x, @coordinate_px_y, @alarm_status, @battery, @application_id
+        )
+      `);
+    }
+
+    console.log(`Saved ${positions.length} positions to tracking_transaction`);
   } catch (error) {
     console.error(`Failed to save positions to database: ${error.message}`);
     throw error;
@@ -68,8 +127,8 @@ async function saveAlarmTriggers(positions) {
           .input("id", sql.UniqueIdentifier, activeAlarm.id)
           .input("beacon_id", sql.VarChar(12), pos.beaconId)
           .input("floorplan_id", sql.UniqueIdentifier, pos.floorplanId)
-          .input("pos_x", sql.BigInt, pos.point.x)
-          .input("pos_y", sql.BigInt, pos.point.y)
+          .input("pos_x", sql.Real, pos.point.x)
+          .input("pos_y", sql.Real, pos.point.y)
           .input("is_in_restricted_area", sql.Bit, pos.inRestrictedArea)
           .input("first_gateway_id", sql.VarChar(12), pos.first)
           .input("second_gateway_id", sql.VarChar(12), pos.second)
@@ -100,8 +159,8 @@ async function saveAlarmTriggers(positions) {
           .input("id", sql.UniqueIdentifier, uuidv4())
           .input("beacon_id", sql.VarChar(12), pos.beaconId)
           .input("floorplan_id", sql.UniqueIdentifier, pos.floorplanId)
-          .input("pos_x", sql.BigInt, pos.point.x)
-          .input("pos_y", sql.BigInt, pos.point.y)
+          .input("pos_x", sql.Real, pos.point.x)
+          .input("pos_y", sql.Real, pos.point.y)
           .input("is_in_restricted_area", sql.Bit, pos.inRestrictedArea)
           .input("first_gateway_id", sql.VarChar(12), pos.first)
           .input("second_gateway_id", sql.VarChar(12), pos.second)
@@ -172,6 +231,7 @@ module.exports = {
   saveAlarmTriggers,
   checkActiveAlarm,
   deactivateAlarm,
+  saveTrackingTransactions,
 };
 
 // var ApplciationId = "C926D20B-A746-4492-9924-EB7EEE76305C";

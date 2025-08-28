@@ -47,12 +47,13 @@ function startMqttClient(messageCallback) {
     try {
       var message_str = message.toString();
       var data = JSON.parse(message_str);
+      // console.log(data);
 
       const gatewayId = data.gmac;
 
       if (data.obj) {
         data.obj.forEach((beacon) => {
-          if (beacon.type !== 4) return;
+          // if (beacon.type !== 4) return;
           if (
             beacon.dmac == "BC572913EA8B" ||
             beacon.dmac == "BC572913EA73" ||
@@ -91,8 +92,8 @@ function startMqttClient(messageCallback) {
           if (!kf) {
             kf = new KalmanFilter({
               observation: 1,
-              R: 50,
-              Q: 0.01,
+              // R: 50,
+              // Q: 0.01,
             });
             kalmanFilters.set(filterKey, kf);
           }

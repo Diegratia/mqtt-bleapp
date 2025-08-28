@@ -1,7 +1,14 @@
+const ntfyPublish = require("@cityssm/ntfy-publish").default;
+const inside = require("point-in-polygon");
 const { startMqttClient } = require("./mqtt");
-const { fetchAllFloorplans, fetchAllCardsWithDmac } = require("./database");
+const {
+  fetchAllFloorplans,
+  fetchAllCardsWithDmac,
+  fetchAllVisitorBlacklistArea,
+} = require("./database");
 const {
   saveBeaconPositions,
+  saveTrackingTransactions,
   saveAlarmTriggers,
   checkActiveAlarm,
 } = require("./beaconStorage");
@@ -9,6 +16,7 @@ const {
 let realtimeBeaconPairs = new Map(); // floorplanId -> Map(dmac -> Map(timestamp -> { gmac: calcDist }))
 const timeTolerance = 2500;
 const cardCache = new Map(); // dmac -> cardData
+const visitorBlacklistCache = new Map();
 let client;
 const floorplans = new Map(); // floorplanId -> { name, scale, gateways: Map(gmac -> { x, y }), maskedAreas: [] }
 const gmacToFloorplans = new Map(); // gmac -> Set<floorplanId>
@@ -103,6 +111,41 @@ async function initializeAllFloorplans() {
   }
 }
 
+async function sendTestNtfy() {
+  try {
+    const result = await ntfyPublish({
+      server: "http://192.168.1.116:6099",
+      topic: "tracking-ntfy",
+      priority: "high",
+      title: "Alarm Test",
+      message: "Test Alarm Notification",
+      // tags: ["warning", "computer"],
+    });
+
+    console.log("NTFY published:", result);
+  } catch (error) {
+    console.error("NTFY publish failed:", error.message);
+  }
+}
+
+async function initializeBlacklistArea() {
+  const blacklist = await fetchAllVisitorBlacklistArea();
+  visitorBlacklistCache.clear();
+
+  for (const row of blacklist) {
+    const visitorId = row.visitor_id;
+    const areaId = row.floorplan_masked_area_id;
+
+    if (!visitorBlacklistCache.has(visitorId)) {
+      visitorBlacklistCache.set(visitorId, new Set());
+    }
+
+    visitorBlacklistCache.get(visitorId).add(areaId);
+  }
+
+  console.log("Initialized blacklist area cache");
+}
+
 async function initializeCardCache() {
   try {
     const cards = await fetchAllCardsWithDmac();
@@ -155,77 +198,33 @@ async function initializeCardCache() {
 //   return inside;
 // }
 
-function pointInPolygon(point, polygon) {
-  const { x, y } = point;
-  let inside = false;
+// function pointInPolygon(point, polygon) {
+//   const { x, y } = point;
+//   let inside = false;
 
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = polygon[i].x_px,
-      yi = polygon[i].y_px;
-    const xj = polygon[j].x_px,
-      yj = polygon[j].y_px;
+//   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+//     const xi = polygon[i].x_px,
+//       yi = polygon[i].y_px;
+//     const xj = polygon[j].x_px,
+//       yj = polygon[j].y_px;
 
-    if (
-      yi > y !== yj > y &&
-      x < ((xj - xi) * (y - yi)) / (yj - yi || 1e-10) + xi
-    ) {
-      inside = !inside;
-    }
-  }
-
-  return inside;
-}
-
-//memeriksa apakah titik valid berdasarkan maskedAreas
-// function isPointValid(point, floorplanId) {
-//   // const floorplan = floorplans.get(floorplanId);
-//   // if (!floorplan) return false;
-//   // const { maskedAreas } = floorplan;
-//   // const isInRestrictedArea = maskedAreas.some((area) => {
-//   //   if (area.restricted_status === "restrict") {
-//   //     try {
-//   //       const polygon = JSON.parse(area.area_shape);
-//   //       return pointInPolygon(point, polygon);
-//   //     } catch {
-//   //       return false;
-//   //     }
-//   //   }
-//   //   return false;
-//   // });
-//   // if (isInRestrictedArea) return false;
-
-//   // const hasNonRestrict = maskedAreas.some(
-//   //   (a) => a.restricted_status === "non-restrict"
-//   // );
-//   const floorplan = floorplans.get(floorplanId);
-//   if (!floorplan) return false;
-
-//   // Periksa apakah titik berada di area restrict
-//   if (isInRestrictedArea(point, floorplanId)) {
-//     return false; // Titik di area restrict tidak valid
+//     if (
+//       yi > y !== yj > y &&
+//       x < ((xj - xi) * (y - yi)) / (yj - yi || 1e-10) + xi
+//     ) {
+//       inside = !inside;
+//     }
 //   }
 
-//   const { maskedAreas } = floorplan;
-//   const hasNonRestrict = maskedAreas.some(
-//     (a) => a.restricted_status === "non-restrict"
-//   );
-
-//   if (hasNonRestrict) {
-//     return maskedAreas.some((area) => {
-//       if (area.restricted_status === "non-restrict") {
-//         try {
-//           const polygon = JSON.parse(area.area_shape);
-//           return pointInPolygon(point, polygon);
-//         } catch {
-//           return false;
-//         }
-//       }
-//       return false;
-//     });
-//   } else {
-//     return true;
-//   }
+//   return inside;
 // }
+
+function pointInPolygon(point, polygon) {
+  if (!point || !polygon || !Array.isArray(polygon)) return false;
+  const convertedPolygon = polygon.map((p) => [p.x_px, p.y_px]);
+  const convertedPoint = [point.x, point.y];
+  return inside(convertedPoint, convertedPolygon);
+}
 
 function isPointValid(point, floorplanId) {
   const floorplan = floorplans.get(floorplanId);
@@ -303,50 +302,78 @@ function determineBestFloorplan(dmac, positions) {
   return bestFloorplanId;
 }
 
+fetch("http://192.168.1.116:6099/tracking-ntfy", {
+  method: "POST", // PUT works too
+  headers: {
+    Click: "https://home.nest.com/",
+    Attach: "https://nest.com/view/yAxkasd.jpg",
+    Actions: "http, Open door, https://api.nest.com/open/yAxkasd, clear=true",
+    Email: "phil@example.com",
+  },
+  body: `There's someone at the door. 🐶
+
+Please check if it's a good boy or a hooman. 
+Doggies have been known to ring the doorbell.`,
+});
+
 async function handleAlarmTrigger(positions, floorplanId, timestamp) {
   if (!positions || positions.length === 0) return;
 
-  const alarmPositions = positions.filter((p) =>
-    isInRestrictedArea(p.point, floorplanId)
-  );
+  const floorplan = floorplans.get(floorplanId);
+  if (!floorplan) return;
+
+  const alarmPositions = [];
+
+  for (const pos of positions) {
+    const matchedArea = getMaskedAreaFromPoint(pos.point, floorplan);
+    if (!matchedArea) continue;
+
+    const { id: maskedAreaId, name: maskedAreaName } = matchedArea;
+
+    const isRestricted = isInRestrictedArea(pos.point, floorplanId);
+
+    const isBlacklistArea =
+      pos.visitorCardId &&
+      visitorBlacklistCache.has(pos.visitorCardId) &&
+      visitorBlacklistCache.get(pos.visitorCardId).has(maskedAreaId);
+
+    if (isRestricted || isBlacklistArea) {
+      pos.inRestrictedArea = true;
+      pos.maskedAreaId = maskedAreaId;
+      pos.maskedAreaName = maskedAreaName;
+      alarmPositions.push(pos);
+      sendTestNtfy();
+    }
+  }
+
   if (alarmPositions.length === 0) return;
 
   for (const pos of alarmPositions) {
     const { beaconId: dmac } = pos;
     const currentTime = timestamp;
 
-    // cek db
     const activeAlarm = await checkActiveAlarm(dmac);
+
     if (
       !activeAlarm ||
       currentTime - new Date(activeAlarm.trigger_time).getTime() >=
         alarmCooldown
     ) {
       pos.is_active = true;
-      // cari nama masked
-      let maskedAreaId = null;
-      let maskedAreaName = null;
-      const floorplan = floorplans.get(floorplanId);
-      const matched = getMaskedAreaFromPoint(point, floorplan);
-      if (matched) {
-        maskedAreaName = matched.name;
-        maskedAreaId = matched.id;
-      }
-
-      if (!maskedAreaName) return;
 
       await saveAlarmTriggers([pos]);
       client.publish(
-        `alarm/topic2`,
+        `alarm/topic`,
         JSON.stringify([
           {
             ...pos,
-            floorplanName: floorplans.get(floorplanId)?.name,
-            maskedAreaName,
+            floorplanName: floorplan.name,
           },
         ]),
         { qos: 1 }
       );
+
+      await sendTestNtfy();
 
       console.log(
         `Alarm triggered for beacon ${dmac} on floorplan ${floorplanId}`
@@ -376,8 +403,10 @@ function setupRealtimeStream() {
         // if (!cardCache.has(dmac.toLowerCase())) return;
 
         const calc_dist = parseFloat(calcDistStr);
-        const timestamp = new Date(time.replace(",", ".")).getTime();
+        const timestamp = new Date(time + "Z");
+
         const now = Date.now();
+        // console.log(timestamp, now);
 
         const floorplanIds = Array.from(gmacToFloorplans.get(gmac) || []);
         if (!floorplanIds.length) return;
@@ -508,6 +537,7 @@ function setupRealtimeStream() {
                     JSON.stringify(validPositions),
                     { qos: 1 }
                   );
+
                   // console.log("validPositions", validPositions);
                 }
 
@@ -550,8 +580,11 @@ function setupRealtimeStream() {
           floorplan.gateways,
           floorplan.scale
         );
+        if (!Array.isArray(positions)) return;
         // const valid = positions.filter((p) => p.point);
         // if (valid.length > 0) await saveBeaconPositions(valid);
+        const valid = positions.filter((p) => p.point);
+        if (valid.length > 0) await saveTrackingTransactions(valid);
       }
 
       for (const [dmac, timestamps] of beacons) {
@@ -565,10 +598,15 @@ function setupRealtimeStream() {
   }, timeTolerance);
 
   if (refreshInterval) clearInterval(refreshInterval);
-  refreshInterval = setInterval(
-    () => initializeAllFloorplans().catch(console.error),
-    120000
-  );
+  refreshInterval = setInterval(async () => {
+    try {
+      await initializeAllFloorplans();
+      await initializeBlacklistArea();
+      await initializeCardCache();
+    } catch (err) {
+      console.error("Error in refreshInterval:", err);
+    }
+  }, 120000);
 }
 
 function generateBeaconPointsBetweenReaders(
@@ -616,9 +654,9 @@ function generateBeaconPointsBetweenReaders(
   const perpX = -uy;
   const perpY = ux;
 
-  const spreadLeft = 1;
-  const spreadRight = 1;
-  const spreadAlong = 1;
+  const spreadLeft = 2 / scale;
+  const spreadRight = 2 / scale;
+  const spreadAlong = 1 / scale;
   const maxAttempts = 20;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -685,23 +723,38 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
           floorplanId
         );
 
-        if (!point) return;
-        if (!start || !end || !first || !second) return;
-        if (!isPointValid(point, floorplanId)) return;
+        // if (!point) return;
+        // if (!start || !end || !first || !second) return;
+        // if (!isPointValid(point, floorplanId)) return;
+
+        if (!point) continue;
+        if (!start || !end || !first || !second) continue;
+        if (!isPointValid(point, floorplanId)) continue;
+
+        let maskedAreaName = null;
+        let maskedAreaId = null;
+        const floorplan = floorplans.get(floorplanId);
+        if (floorplan) {
+          const maskedArea = getMaskedAreaFromPoint(point, floorplan);
+          if (maskedArea) {
+            maskedAreaName = maskedArea.name;
+            maskedAreaId = maskedArea.id;
+          }
+        }
+
+        const card = cardCache.get(dmac.toLowerCase()) ?? {};
 
         if (point) {
           const inRestrictedArea = isInRestrictedArea(point, floorplanId);
 
-          let maskedAreaName = null;
-          let maskedAreaId = null;
-          const floorplan = floorplans.get(floorplanId);
-          if (floorplan) {
-            const maskedArea = getMaskedAreaFromPoint(point, floorplan);
-            if (maskedArea) {
-              maskedAreaName = maskedArea.name;
-              maskedAreaId = maskedArea.id;
-            }
-          }
+          //cek kalau visitor ada di blacklistarea
+          // if (
+          //   card.visitor_id &&
+          //   visitorBlacklistCache.has(card.visitor_id) &&
+          //   visitorBlacklistCache.get(card.visitor_id).has(maskedAreaId)
+          // ) {
+          //   inRestrictedArea = true;
+          // }
 
           // if (!maskedAreaName) {
           //   // console.warn(
@@ -709,8 +762,6 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
           //   // );
           //   return;
           // }
-
-          const card = cardCache.get(dmac.toLowerCase()) ?? {};
 
           if (
             floorplans.get(floorplanId).name === null ||
@@ -753,7 +804,7 @@ function generateBeaconPositions(floorplanId, gateways, scale) {
           };
 
           pairs.push(pushedData);
-          console.log("New pair pushed:", pushedData);
+          // console.log("New pair pushed:", pushedData);
         }
       }
     }
@@ -766,4 +817,5 @@ module.exports = {
   generateBeaconPositions,
   initializeAllFloorplans,
   initializeCardCache,
+  initializeBlacklistArea,
 };
